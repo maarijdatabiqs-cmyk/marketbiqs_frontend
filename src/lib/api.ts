@@ -1,4 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://marketbiqsbackend-production.up.railway.app"
+).replace(/\/$/, "");
 
 export type ApiError = { detail?: string | { msg: string }[] };
 
@@ -22,6 +25,11 @@ export function clearSession() {
   localStorage.removeItem("biqs_agency_id");
 }
 
+/** Empty API_URL = same-origin (Next.js rewrites proxy to backend). */
+function apiBase() {
+  return API_URL;
+}
+
 export async function api<T>(
   path: string,
   options: RequestInit = {},
@@ -35,7 +43,7 @@ export async function api<T>(
   const agencyId = getAgencyId();
   if (agencyId) headers.set("X-Agency-Id", agencyId);
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${apiBase()}${path}`, { ...options, headers });
   if (!res.ok) {
     let detail = "Request failed";
     try {
@@ -55,13 +63,13 @@ export async function api<T>(
 
 export function pdfUrl(reportId: string) {
   const token = getToken();
-  return `${API_URL}/api/reports/${reportId}/pdf?token=${token || ""}`;
+  return `${apiBase()}/api/reports/${reportId}/pdf?token=${token || ""}`;
 }
 
 export async function downloadReportPdf(reportId: string, filename: string) {
   const token = getToken();
   const agencyId = getAgencyId();
-  const res = await fetch(`${API_URL}/api/reports/${reportId}/pdf`, {
+  const res = await fetch(`${apiBase()}/api/reports/${reportId}/pdf`, {
     headers: {
       Authorization: `Bearer ${token}`,
       ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
