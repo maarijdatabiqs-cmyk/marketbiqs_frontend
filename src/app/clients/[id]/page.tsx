@@ -1,0 +1,970 @@
+"use client";
+
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { AppShell } from "@/components/AppShell";
+import { Button, Card, Input, Label, PageHeader, Textarea } from "@/components/ui";
+import { api, downloadReportPdf } from "@/lib/api";
+
+type Tab = "loop" | "features" | "competitors" | "compare" | "gaps" | "alerts" | "wishlist" | "reports" | "radar";
+
+const TAB_HELP: Record<Tab, string> = {
+  loop: "AI recommends missing competitor features and improvements to your current ones.",
+  features: "What this client already ships — inventory only. Use Weekly loop, Comparison, or Alerts to wishlist gaps to build.",
+  competitors: "Top rivals discovered by AI — open one for features, description, and website.",
+  compare: "Pick a competitor to see a full feature-by-feature report and wishlist gaps.",
+  gaps: "AI-evaluated gaps between your product and each rival.",
+  alerts: "Only specialties competitors have that you still lack.",
+  wishlist: "Features you marked for build — open a development plan and push to Jira.",
+  reports: "Every intel run report. Auto daily + manual trigger anytime.",
+  radar: "Trends, sentiment, snapshots, and tracking jobs for this client.",
+};
+
+export default function ClientDetailPage() {
+  const params = useParams<{ id: string }>();
+  const clientId = params.id;
+  const [tab, setTab] = useState<Tab>("loop");
+  const [client, setClient] = useState<any>(null);
+  const [competitors, setCompetitors] = useState<any[]>([]);
+  const [features, setFeatures] = useState<any[]>([]);
+  const [comparisons, setComparisons] = useState<any[]>([]);
+  const [gaps, setGaps] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [weekly, setWeekly] = useState<any>(null);
+  const [wishlist, setWishlist] = useState<any[]>([]);
+  const [selectedFeatureId, setSelectedFeatureId] = useState("");
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [selectedCompetitorId, setSelectedCompetitorId] = useState("");
+  const [competitorDetail, setCompetitorDetail] = useState<any>(null);
+  const [trends, setTrends] = useState<any[]>([]);
+  const [sentiment, setSentiment] = useState<any[]>([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [featureForm, setFeatureForm] = useState({ name: "", category: "General", description: "" });
+  const [compForm, setCompForm] = useState({ name: "", website: "" });
+
+  async function loadAll() {
+    const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
+    const [c, comps, feats, g, a, r, loop, wish, tr, sent, snaps, j] = await Promise.all([
+      api<any>(`/api/clients/${clientId}`),
+      soft(api<any[]>(`/api/clients/${clientId}/competitors`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/features`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/gaps`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/alerts`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/reports`), []),
+      soft(api<any>(`/api/clients/${clientId}/weekly-loop`), null),
+      soft(api<any[]>(`/api/clients/${clientId}/wishlist`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/trends`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/sentiment`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/snapshots`), []),
+      soft(api<any[]>(`/api/clients/${clientId}/jobs`), []),
+    ]);
+    setClient(c);
+    setCompetitors(comps);
+    setFeatures(feats);
+    setGaps(g);
+    setAlerts(a);
+    setReports(r);
+    setWeekly(loop);
+    setWishlist(wish);
+    setTrends(Array.isArray(tr) ? tr : []);
+    setSentiment(Array.isArray(sent) ? sent : []);
+    setSnapshots(Array.isArray(snaps) ? snaps : []);
+    setJobs(Array.isArray(j) ? j : []);
+    setError("");
+    if (!selectedCompetitorId && comps[0]) setSelectedCompetitorId(comps[0].id);
+    if (!selectedFeatureId && wish[0]) setSelectedFeatureId(wish[0].id);
+  }
+
+  useEffect(() => {
+    loadAll().catch((err) => setError(err.message));
+  }, [clientId]);
+
+  useEffect(() => {
+    if (!selectedCompetitorId) {
+      setComparisons([]);
+      setCompetitorDetail(null);
+      return;
+    }
+    api<any[]>(`/api/clients/${clientId}/comparisons?competitor_id=${selectedCompetitorId}`)
+      .then(setComparisons)
+      .catch(() => setComparisons([]));
+    if (tab === "competitors") {
+      api<any>(`/api/clients/${clientId}/competitors/${selectedCompetitorId}`)
+        .then(setCompetitorDetail)
+        .catch(() => setCompetitorDetail(null));
+    }
+  }, [clientId, selectedCompetitorId, tab]);
+
+  useEffect(() => {
+    if (!selectedFeatureId || tab !== "wishlist") {
+      if (tab !== "wishlist") return;
+      setTickets([]);
+      return;
+    }
+    api<any[]>(`/api/clients/${clientId}/features/${selectedFeatureId}/tickets`)
+      .then(setTickets)
+      .catch(() => setTickets([]));
+  }, [clientId, selectedFeatureId, tab]);
+
+  const selectedCompetitor = useMemo(
+    () => competitors.find((c) => c.id === selectedCompetitorId) || null,
+    [competitors, selectedCompetitorId],
+  );
+
+  const ownedFeatures = useMemo(
+    () => features.filter((f) => !f.is_wishlisted && !f.is_loved),
+    [features],
+  );
+
+  const activeAlerts = useMemo(
+    () => alerts.filter((a) => !a.acted_on && !a.acted_at && !a.is_acted && a.status !== "acted"),
+    [alerts],
+  );
+
+  async function runIntel() {
+    setBusy("pack");
+    setError("");
+    setMessage("");
+    try {
+      const res = await api<any>(`/api/clients/${clientId}/auto-run`, { method: "POST" });
+      setMessage(
+        `Intel run complete · features ${res.enrich?.features || 0} · rivals ${res.pack?.competitors || 0} · report ready.`,
+      );
+      await loadAll();
+      setTab("reports");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Intel run failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function generateWeeklyBrief() {
+    setBusy("brief");
+    setError("");
+    setMessage("");
+    try {
+      const brief = await api<any>(`/api/clients/${clientId}/weekly-brief`, { method: "POST" });
+      await loadAll();
+      setMessage(brief?.title ? `Weekly brief ready · ${brief.title}` : "Weekly brief generated");
+      setTab("reports");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Weekly brief failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function togglePin(competitorId: string, isPinned: boolean) {
+    setBusy(`pin-${competitorId}`);
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}/competitors/${competitorId}/${isPinned ? "unpin" : "pin"}`, {
+        method: "POST",
+      });
+      setMessage(isPinned ? "Competitor unpinned" : "Competitor pinned");
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pin update failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sendFeedback(entity_type: "comparison" | "gap" | "alert", entity_id: string, rating: "useful" | "useless") {
+    setBusy(`fb-${entity_id}-${rating}`);
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ entity_type, entity_id, rating }),
+      });
+      setMessage(rating === "useful" ? "Marked useful" : "Marked useless");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Feedback failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function markAlertDone(alertId: string) {
+    setBusy(`alert-${alertId}`);
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}/alerts/${alertId}/acted`, { method: "POST" });
+      setMessage("Alert marked done");
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Mark done failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function addWishlist(payload: { feature_name: string; category?: string; description?: string }) {
+    setBusy("wish");
+    try {
+      const f = await api<any>(`/api/clients/${clientId}/wishlist`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setMessage(`Added “${f.name}” to wishlist`);
+      setSelectedFeatureId(f.id);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wishlist failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function openPlan(featureId: string) {
+    setBusy("plan");
+    setError("");
+    try {
+      const generated = await api<any[]>(`/api/clients/${clientId}/features/${featureId}/development-plan`, {
+        method: "POST",
+      });
+      setSelectedFeatureId(featureId);
+      setTickets(generated);
+      setTab("wishlist");
+      setMessage(`${generated.length} development tickets ready`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Plan failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function pushJira() {
+    if (!selectedFeatureId) return;
+    setBusy("jira");
+    try {
+      const created = await api<any[]>(
+        `/api/clients/${clientId}/features/${selectedFeatureId}/tickets/create-all`,
+        { method: "POST" },
+      );
+      setTickets(created);
+      setMessage(`Pushed ${created.filter((t) => t.jira_key).length} tickets to Jira`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Jira push failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function addFeature(e: FormEvent) {
+    e.preventDefault();
+    await api(`/api/clients/${clientId}/features`, { method: "POST", body: JSON.stringify(featureForm) });
+    setFeatureForm({ name: "", category: "General", description: "" });
+    await loadAll();
+  }
+
+  async function addCompetitor(e: FormEvent) {
+    e.preventDefault();
+    const created = await api<any>(`/api/clients/${clientId}/competitors`, {
+      method: "POST",
+      body: JSON.stringify(compForm),
+    });
+    setCompForm({ name: "", website: "" });
+    await loadAll();
+    setSelectedCompetitorId(created.id);
+  }
+
+  if (!client) {
+    return (
+      <AppShell>
+        {error ? (
+          <div className="space-y-3">
+            <p className="text-red-600">{error}</p>
+            <Button onClick={() => loadAll().catch((err) => setError(err.message))}>Retry</Button>
+          </div>
+        ) : (
+          <div className="text-[var(--muted)]">Loading company intelligence...</div>
+        )}
+      </AppShell>
+    );
+  }
+
+  const tabs: { id: Tab; label: string; count?: number }[] = [
+    { id: "loop", label: "Weekly loop" },
+    { id: "features", label: "Features", count: ownedFeatures.length },
+    { id: "competitors", label: "Competitors", count: competitors.length },
+    { id: "compare", label: "Comparison" },
+    { id: "gaps", label: "Gaps", count: gaps.length },
+    { id: "alerts", label: "Alerts", count: activeAlerts.length },
+    { id: "wishlist", label: "Wishlist", count: wishlist.length },
+    { id: "reports", label: "Reports", count: reports.length },
+    { id: "radar", label: "Radar" },
+  ];
+
+  return (
+    <AppShell>
+      <PageHeader
+        title={client.name}
+        subtitle={`${client.industry || "Industry TBD"} · ${competitors.length} rivals tracked · daily intel + manual runs`}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/clients">
+              <Button variant="ghost">All clients</Button>
+            </Link>
+            <Link href={`/portal/${clientId}`}>
+              <Button variant="ghost">Client GPT portal</Button>
+            </Link>
+            <Button onClick={runIntel} disabled={!!busy}>
+              {busy === "pack" ? "Running intel..." : "Run intel now"}
+            </Button>
+          </div>
+        }
+      />
+      {error ? <p className="text-red-600 mb-4">{error}</p> : null}
+      {message ? <p className="text-[var(--accent)] mb-4">{message}</p> : null}
+
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`shrink-0 rounded-xl px-3 py-2 text-sm border ${
+              tab === t.id
+                ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                : "border-[var(--line)] text-[var(--muted)] hover:bg-black/5"
+            }`}
+          >
+            {t.label}
+            {typeof t.count === "number" ? ` (${t.count})` : ""}
+          </button>
+        ))}
+      </div>
+      <p className="text-sm text-[var(--muted)] mb-6">{TAB_HELP[tab]}</p>
+
+      <div className="space-y-4 max-w-4xl">
+        {tab === "loop" ? (
+          <>
+            <Card>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h2 className="font-semibold">Recommended next moves</h2>
+                <Button onClick={generateWeeklyBrief} disabled={!!busy}>
+                  {busy === "brief" ? "Generating..." : "Generate weekly brief"}
+                </Button>
+              </div>
+              <ol className="text-sm text-[var(--muted)] list-decimal pl-5 space-y-1">
+                {(weekly?.next_actions || []).map((a: string) => (
+                  <li key={a}>{a}</li>
+                ))}
+              </ol>
+            </Card>
+            {(weekly?.recommendations || []).map((rec: any) => (
+              <Card key={`${rec.type}-${rec.feature_name}-${rec.competitor_id}`}>
+                <div className="text-xs uppercase text-[var(--accent)]">
+                  {rec.type === "missing" ? "Competitor has · you don’t" : "Improve current feature"}
+                </div>
+                <div className="font-semibold mt-1">{rec.feature_name}</div>
+                <div className="text-xs text-[var(--muted)] mt-1">
+                  vs {rec.competitor_name} · confidence {Math.round((rec.confidence_score || 0) * 100)}%
+                </div>
+                <p className="text-sm mt-2">{rec.recommendation}</p>
+                <p className="text-sm text-[var(--muted)] mt-2">{rec.why}</p>
+                <Button
+                  className="mt-3"
+                  disabled={!!busy}
+                  onClick={() =>
+                    addWishlist({
+                      feature_name: rec.feature_name,
+                      category: rec.category || "General",
+                      description: rec.recommendation,
+                    })
+                  }
+                >
+                  Add to wishlist
+                </Button>
+              </Card>
+            ))}
+            {(weekly?.recommendations || []).length === 0 ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">
+                  No recommendations yet. Run intel to generate missing-feature and improvement suggestions.
+                </p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "features" ? (
+          <>
+            <Card>
+              <h2 className="font-semibold mb-3">Add feature manually</h2>
+              <form onSubmit={addFeature} className="space-y-3">
+                <div>
+                  <Label>Name</Label>
+                  <Input value={featureForm.name} onChange={(e) => setFeatureForm({ ...featureForm, name: e.target.value })} required />
+                </div>
+                <div>
+                  <Label>Category</Label>
+                  <Input value={featureForm.category} onChange={(e) => setFeatureForm({ ...featureForm, category: e.target.value })} />
+                </div>
+                <div>
+                  <Label>One-line description</Label>
+                  <Textarea rows={2} value={featureForm.description} onChange={(e) => setFeatureForm({ ...featureForm, description: e.target.value })} />
+                </div>
+                <Button type="submit">Save feature</Button>
+              </form>
+            </Card>
+            {ownedFeatures.map((f) => (
+              <Card key={f.id}>
+                <div className="font-medium">{f.name}</div>
+                <div className="text-xs text-[var(--muted)]">{f.category}</div>
+                <p className="text-sm text-[var(--muted)] mt-1">{f.description || "No description yet"}</p>
+              </Card>
+            ))}
+            {!ownedFeatures.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">
+                  No owned features yet. Run intel to auto-fetch or add manually above.
+                </p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "competitors" ? (
+          <>
+            <Card>
+              <h2 className="font-semibold mb-3">Add competitor manually</h2>
+              <form onSubmit={addCompetitor} className="space-y-3">
+                <div>
+                  <Label>Name</Label>
+                  <Input value={compForm.name} onChange={(e) => setCompForm({ ...compForm, name: e.target.value })} required />
+                </div>
+                <div>
+                  <Label>Website</Label>
+                  <Input value={compForm.website} onChange={(e) => setCompForm({ ...compForm, website: e.target.value })} />
+                </div>
+                <Button type="submit">Add competitor</Button>
+              </form>
+            </Card>
+            <Card>
+              <Label>Select competitor</Label>
+              <select
+                className="mt-1 w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm"
+                value={selectedCompetitorId}
+                onChange={(e) => setSelectedCompetitorId(e.target.value)}
+              >
+                {competitors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} · threat {c.threat_level} · overlap {Math.round(c.overlap_score || 0)}%
+                    {c.is_pinned ? " · pinned" : ""}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-3 space-y-2">
+                {competitors.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`w-full rounded-xl border px-3 py-3 ${
+                      selectedCompetitorId === c.id ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--line)]"
+                    }`}
+                  >
+                    <button type="button" onClick={() => setSelectedCompetitorId(c.id)} className="w-full text-left">
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium">{c.name}</div>
+                        {c.is_pinned ? (
+                          <span className="text-xs uppercase text-[var(--accent)]">pinned</span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-[var(--muted)] mt-1">
+                        threat {c.threat_level} · overlap {Math.round(c.overlap_score || 0)}%
+                      </div>
+                    </button>
+                    <Button
+                      className="mt-2"
+                      variant="ghost"
+                      disabled={!!busy}
+                      onClick={() => togglePin(c.id, !!c.is_pinned)}
+                    >
+                      {busy === `pin-${c.id}` ? "Updating..." : c.is_pinned ? "Unpin" : "Pin"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            {competitors.length === 0 ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">No competitors tracked yet.</p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+            {competitorDetail ? (
+              <Card>
+                <div className="flex items-center gap-2">
+                  <div className="font-semibold text-lg">{competitorDetail.name}</div>
+                  {competitorDetail.is_pinned ? (
+                    <span className="text-xs uppercase text-[var(--accent)]">pinned</span>
+                  ) : null}
+                </div>
+                <p className="text-sm text-[var(--muted)] mt-2">
+                  {competitorDetail.description || competitorDetail.why_dangerous || "No short description yet"}
+                </p>
+                {competitorDetail.website ? (
+                  <a className="text-sm text-[var(--accent)] mt-3 inline-block" href={competitorDetail.website} target="_blank" rel="noreferrer">
+                    {competitorDetail.website}
+                  </a>
+                ) : null}
+                <h3 className="font-semibold mt-5 mb-2">Competitor features</h3>
+                <div className="space-y-3">
+                  {(competitorDetail.features || []).map((f: any, idx: number) => (
+                    <div key={`${f.name}-${idx}`} className="border-b border-[var(--line)] pb-3">
+                      <div className="font-medium">{f.name}</div>
+                      <div className="text-xs text-[var(--muted)]">{f.category || f.status || "Feature"}</div>
+                      <p className="text-sm text-[var(--muted)] mt-1">{f.description || "—"}</p>
+                      <Button
+                        className="mt-2"
+                        variant="ghost"
+                        onClick={() =>
+                          addWishlist({
+                            feature_name: f.name,
+                            category: f.category || "General",
+                            description: f.description || "",
+                          })
+                        }
+                      >
+                        Add to wishlist
+                      </Button>
+                    </div>
+                  ))}
+                  {(competitorDetail.features || []).length === 0 ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-[var(--muted)]">No features listed for this rival yet.</p>
+                      <Button onClick={runIntel} disabled={!!busy}>
+                        {busy === "pack" ? "Running intel..." : "Run intel now"}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "compare" ? (
+          <>
+            <Card>
+              <Label>Competitor</Label>
+              <select
+                className="mt-1 w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm"
+                value={selectedCompetitorId}
+                onChange={(e) => setSelectedCompetitorId(e.target.value)}
+              >
+                {competitors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {selectedCompetitor ? (
+                <p className="text-sm text-[var(--muted)] mt-3">
+                  Full feature report vs {selectedCompetitor.name}
+                  {selectedCompetitor.website ? (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a className="text-[var(--accent)]" href={selectedCompetitor.website} target="_blank" rel="noreferrer">
+                        website
+                      </a>
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
+            </Card>
+            {comparisons.map((row) => (
+              <Card key={row.id}>
+                <div className="font-semibold">{row.feature_name}</div>
+                <div className="text-xs text-[var(--muted)] mt-1">
+                  us {row.our_status} · them {row.competitor_status} · confidence {Math.round((row.confidence_score || 0) * 100)}%
+                </div>
+                <p className="text-sm mt-3">{row.note}</p>
+                <div className="mt-3 rounded-xl bg-[var(--accent-soft)] p-3 text-sm">
+                  <div className="text-xs uppercase text-[var(--muted)] mb-1">How competitor leads</div>
+                  {row.how_competitor_leads}
+                </div>
+                <div className="mt-3 rounded-xl border border-[var(--line)] p-3 text-sm">
+                  <div className="text-xs uppercase text-[var(--muted)] mb-1">How to improve</div>
+                  {row.how_to_improve}
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Button
+                    onClick={() =>
+                      addWishlist({
+                        feature_name: row.feature_name,
+                        category: row.category || "General",
+                        description: row.how_to_improve || row.note,
+                      })
+                    }
+                  >
+                    Add feature to wishlist
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!!busy}
+                    onClick={() => sendFeedback("comparison", row.id, "useful")}
+                  >
+                    Useful
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!!busy}
+                    onClick={() => sendFeedback("comparison", row.id, "useless")}
+                  >
+                    Useless
+                  </Button>
+                </div>
+              </Card>
+            ))}
+            {!comparisons.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">No comparison rows for this rival yet.</p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "gaps" ? (
+          <>
+            {gaps.map((gap) => (
+              <Card key={gap.id}>
+                <div className="font-semibold">{gap.competitor_name}</div>
+                <div className="text-xs text-[var(--muted)]">confidence {Math.round((gap.confidence_score || 0) * 100)}%</div>
+                <p className="text-sm mt-2">{gap.summary}</p>
+                {(gap.leading || []).length ? (
+                  <div className="mt-3 text-sm">
+                    <div className="text-xs uppercase text-[var(--muted)] mb-1">They lead</div>
+                    <ul className="list-disc pl-5 text-[var(--muted)]">
+                      {(gap.leading || []).slice(0, 6).map((x: string) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {(gap.opportunities || []).length ? (
+                  <div className="mt-3 text-sm">
+                    <div className="text-xs uppercase text-[var(--muted)] mb-1">Opportunities</div>
+                    <ul className="list-disc pl-5 text-[var(--muted)]">
+                      {(gap.opportunities || []).slice(0, 6).map((x: string) => (
+                        <li key={x}>{x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Button variant="ghost" disabled={!!busy} onClick={() => sendFeedback("gap", gap.id, "useful")}>
+                    Useful
+                  </Button>
+                  <Button variant="ghost" disabled={!!busy} onClick={() => sendFeedback("gap", gap.id, "useless")}>
+                    Useless
+                  </Button>
+                </div>
+              </Card>
+            ))}
+            {!gaps.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">No gaps yet.</p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "alerts" ? (
+          <>
+            {activeAlerts.map((alert) => (
+              <Card key={alert.id}>
+                <div className="font-semibold">{alert.title}</div>
+                <div className="text-xs text-[var(--muted)] mt-1">
+                  Specialty from {alert.competitor_trigger || "rival"} · {alert.impact}
+                </div>
+                <p className="text-sm mt-2">{alert.why_it_matters}</p>
+                <p className="text-sm text-[var(--muted)] mt-2">Action: {alert.action}</p>
+                {alert.content_draft ? (
+                  <div className="mt-3 rounded-xl border border-[var(--line)] p-3 text-sm whitespace-pre-wrap">{alert.content_draft}</div>
+                ) : null}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Button
+                    onClick={() =>
+                      addWishlist({
+                        feature_name: alert.title.slice(0, 80),
+                        description: alert.action,
+                      })
+                    }
+                  >
+                    Add to wishlist
+                  </Button>
+                  <Button variant="ghost" disabled={!!busy} onClick={() => markAlertDone(alert.id)}>
+                    {busy === `alert-${alert.id}` ? "Updating..." : "Mark done"}
+                  </Button>
+                  <Button variant="ghost" disabled={!!busy} onClick={() => sendFeedback("alert", alert.id, "useful")}>
+                    Useful
+                  </Button>
+                  <Button variant="ghost" disabled={!!busy} onClick={() => sendFeedback("alert", alert.id, "useless")}>
+                    Useless
+                  </Button>
+                </div>
+              </Card>
+            ))}
+            {!activeAlerts.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">
+                  No competitor-specialty alerts yet (features they have that you don’t).
+                </p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "wishlist" ? (
+          <>
+            <Card>
+              <Label>Wishlist feature</Label>
+              <select
+                className="mt-1 w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm"
+                value={selectedFeatureId}
+                onChange={(e) => setSelectedFeatureId(e.target.value)}
+              >
+                {wishlist.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <Button onClick={() => selectedFeatureId && openPlan(selectedFeatureId)} disabled={!selectedFeatureId || !!busy}>
+                  {busy === "plan" ? "Building plan..." : "Show development plan & tickets"}
+                </Button>
+                <Button onClick={pushJira} disabled={!tickets.length || !!busy}>
+                  {busy === "jira" ? "Pushing..." : "Add tickets to Jira"}
+                </Button>
+              </div>
+            </Card>
+            {wishlist.map((f) => (
+              <Card key={f.id}>
+                <div className="font-medium">{f.name}</div>
+                <div className="text-xs text-[var(--muted)]">{f.category}</div>
+                <p className="text-sm text-[var(--muted)] mt-1">{f.description || "Wishlisted feature"}</p>
+                <Button className="mt-3" variant="ghost" onClick={() => openPlan(f.id)}>
+                  Development plan
+                </Button>
+              </Card>
+            ))}
+            {tickets.map((t) => (
+              <Card key={t.id}>
+                <div className="text-xs uppercase text-[var(--muted)]">
+                  {t.ticket_type} · {t.priority} · {t.estimated_effort || "effort TBD"} · pts {t.story_points ?? "—"}
+                </div>
+                <div className="flex items-start justify-between gap-3 mt-1">
+                  <h3 className="font-semibold">{t.heading}</h3>
+                  {t.jira_key ? (
+                    <a className="text-sm text-[var(--accent)]" href={t.jira_url || "#"} target="_blank" rel="noreferrer">
+                      {t.jira_key}
+                    </a>
+                  ) : null}
+                </div>
+                <p className="text-sm mt-3 whitespace-pre-wrap">{t.body}</p>
+                <ul className="mt-3 list-disc pl-5 text-sm text-[var(--muted)]">
+                  {(t.acceptance_criteria || []).map((c: string) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              </Card>
+            ))}
+            {!wishlist.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)]">Wishlist is empty. Add features from Weekly loop, Comparison, or Alerts.</p>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "reports" ? (
+          <>
+            <Card>
+              <h2 className="font-semibold mb-1">Intel reports</h2>
+              <p className="text-sm text-[var(--muted)] mb-3">
+                Runs automatically once every 24 hours. Trigger a fresh run anytime.
+              </p>
+              <Button onClick={runIntel} disabled={!!busy}>
+                {busy === "pack" ? "Running..." : "Run intel + generate report now"}
+              </Button>
+            </Card>
+            {reports.map((r) => (
+              <Card key={r.id}>
+                <div className="font-semibold">{r.title}</div>
+                <p className="text-sm text-[var(--muted)] mt-2">{r.summary}</p>
+                <div className="text-xs text-[var(--muted)] mt-2">
+                  {r.created_at ? new Date(r.created_at).toLocaleString() : ""}
+                </div>
+                <Button
+                  className="mt-3"
+                  variant="ghost"
+                  onClick={() => downloadReportPdf(r.id, `${r.title}.pdf`).catch((e) => setError(e.message))}
+                >
+                  Download PDF
+                </Button>
+              </Card>
+            ))}
+            {!reports.length ? (
+              <Card>
+                <p className="text-sm text-[var(--muted)] mb-3">No reports yet.</p>
+                <Button onClick={runIntel} disabled={!!busy}>
+                  {busy === "pack" ? "Running intel..." : "Run intel now"}
+                </Button>
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+
+        {tab === "radar" ? (
+          <>
+            <Card>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h2 className="font-semibold">Trends</h2>
+                {!trends.length ? (
+                  <Button onClick={runIntel} disabled={!!busy}>
+                    {busy === "pack" ? "Running intel..." : "Run intel now"}
+                  </Button>
+                ) : null}
+              </div>
+              <div className="space-y-3">
+                {trends.map((t: any, idx: number) => (
+                  <div key={t.id || idx} className="border-b border-[var(--line)] pb-3 last:border-0 last:pb-0">
+                    <div className="font-medium">{t.topic || t.title || t.name || "Trend"}</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">
+                      {t.platform ? `${t.platform}` : null}
+                      {t.velocity_score != null ? ` · velocity ${t.velocity_score}` : null}
+                      {t.detected_at ? ` · ${new Date(t.detected_at).toLocaleString()}` : null}
+                    </div>
+                    <p className="text-sm text-[var(--muted)] mt-1">
+                      {t.summary || t.description || t.detail || "—"}
+                    </p>
+                  </div>
+                ))}
+                {!trends.length ? <p className="text-sm text-[var(--muted)]">No trends yet.</p> : null}
+              </div>
+            </Card>
+            <Card>
+              <h2 className="font-semibold mb-2">Sentiment</h2>
+              <div className="space-y-3">
+                {sentiment.map((s: any, idx: number) => (
+                  <div key={s.id || idx} className="border-b border-[var(--line)] pb-3 last:border-0 last:pb-0">
+                    <div className="font-medium">{s.subject || s.label || s.source || s.topic || "Sentiment"}</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">
+                      {s.score != null ? `score ${s.score}` : null}
+                      {s.label ? ` · ${s.label}` : null}
+                      {s.polarity ? ` · ${s.polarity}` : null}
+                      {s.source ? ` · ${s.source}` : null}
+                    </div>
+                    <p className="text-sm text-[var(--muted)] mt-1">
+                      {(s.sample_quotes || []).length
+                        ? (s.sample_quotes || []).slice(0, 2).join(" · ")
+                        : s.summary || s.note || s.description || "—"}
+                    </p>
+                  </div>
+                ))}
+                {!sentiment.length ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[var(--muted)]">No sentiment data yet.</p>
+                    <Button onClick={runIntel} disabled={!!busy}>
+                      {busy === "pack" ? "Running intel..." : "Run intel now"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <h2 className="font-semibold mb-2">Snapshots</h2>
+              <div className="space-y-3">
+                {snapshots.map((snap: any, idx: number) => (
+                  <div key={snap.id || idx} className="border-b border-[var(--line)] pb-3 last:border-0 last:pb-0">
+                    <div className="font-medium">{snap.source || snap.title || snap.label || "Snapshot"}</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">
+                      {snap.scraped_at
+                        ? new Date(snap.scraped_at).toLocaleString()
+                        : snap.created_at
+                          ? new Date(snap.created_at).toLocaleString()
+                          : snap.captured_at
+                            ? new Date(snap.captured_at).toLocaleString()
+                            : ""}
+                    </div>
+                    <p className="text-sm text-[var(--muted)] mt-1">
+                      {snap.summary || snap.note || snap.description || "Captured competitor snapshot"}
+                    </p>
+                  </div>
+                ))}
+                {!snapshots.length ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[var(--muted)]">No snapshots yet.</p>
+                    <Button onClick={runIntel} disabled={!!busy}>
+                      {busy === "pack" ? "Running intel..." : "Run intel now"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <h2 className="font-semibold mb-2">Tracking jobs</h2>
+              <div className="space-y-3">
+                {jobs.map((job: any, idx: number) => (
+                  <div key={job.id || idx} className="border-b border-[var(--line)] pb-3 last:border-0 last:pb-0">
+                    <div className="font-medium">{job.job_type || job.name || job.title || job.type || "Job"}</div>
+                    <div className="text-xs text-[var(--muted)] mt-1">
+                      {job.status || "status unknown"}
+                      {job.finished_at
+                        ? ` · ${new Date(job.finished_at).toLocaleString()}`
+                        : job.created_at
+                          ? ` · ${new Date(job.created_at).toLocaleString()}`
+                          : job.updated_at
+                            ? ` · ${new Date(job.updated_at).toLocaleString()}`
+                            : ""}
+                    </div>
+                    <p className="text-sm text-[var(--muted)] mt-1">
+                      {job.detail || job.summary || job.message || job.description || "—"}
+                    </p>
+                  </div>
+                ))}
+                {!jobs.length ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-[var(--muted)]">No tracking jobs yet.</p>
+                    <Button onClick={runIntel} disabled={!!busy}>
+                      {busy === "pack" ? "Running intel..." : "Run intel now"}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+          </>
+        ) : null}
+      </div>
+    </AppShell>
+  );
+}
