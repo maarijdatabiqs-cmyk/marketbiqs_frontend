@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "node",
+  "packages": {
+    "node": "22"
+  },
+  "steps": {
+    "install": {
+      "commands": ["npm install"]
+    }
+  },
+  "deploy": {
+    "startCommand": "npx next start -H 0.0.0.0 -p ${PORT:-3000}"
+  }
+}
