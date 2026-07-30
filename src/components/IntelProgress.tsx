@@ -242,11 +242,12 @@ export function useIntelProgress(active: boolean) {
     if (!active) {
       setStepIndex(0);
       setProgress(6);
-      setElapsedMs(0);
+      // Keep last elapsedMs on error/success so the overlay does not jump to 0s
       setTipIndex(0);
       return;
     }
 
+    setElapsedMs(0);
     const tick = window.setInterval(() => {
       setElapsedMs(Date.now() - startedAt);
       setProgress((p) => Math.min(p + (p < 40 ? 3.2 : p < 70 ? 1.6 : 0.55), 94));
