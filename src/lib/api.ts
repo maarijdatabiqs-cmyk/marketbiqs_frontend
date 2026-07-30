@@ -29,8 +29,12 @@ export function clearSession() {
   localStorage.removeItem("biqs_agency_id");
 }
 
-/** Empty API_URL = same-origin (Next.js rewrites proxy to backend). */
+/**
+ * Browser: same-origin `/api/...` so Next.js rewrites proxy to the backend (avoids CORS).
+ * Server: absolute backend URL.
+ */
 function apiBase() {
+  if (typeof window !== "undefined") return "";
   return API_URL;
 }
 
@@ -84,18 +88,33 @@ export function pdfUrl(reportId: string) {
 export async function downloadReportPdf(reportId: string, filename: string) {
   const token = getToken();
   const agencyId = getAgencyId();
-  const res = await fetch(`${apiBase()}/api/reports/${reportId}/pdf`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
-    },
-  });
-  if (!res.ok) throw new Error("Failed to download PDF");
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/api/reports/${reportId}/pdf`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
+      },
+    });
+  } catch {
+    throw new Error("Could not download PDF (network/CORS). Try again after refresh.");
+  }
+  if (!res.ok) {
+    let detail = "Failed to download PDF";
+    try {
+      const data = (await res.json()) as ApiError;
+      if (typeof data.detail === "string") detail = data.detail;
+    } catch {
+      if (res.status === 401) detail = "Session expired — sign in again to download PDFs.";
+      else if (res.status === 404) detail = "PDF not found for this report.";
+    }
+    throw new Error(detail);
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }
