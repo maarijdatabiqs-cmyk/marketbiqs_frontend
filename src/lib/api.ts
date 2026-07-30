@@ -134,6 +134,9 @@ export function pdfUrl(reportId: string) {
 
 export async function downloadReportPdf(reportId: string, filename: string) {
   const token = getToken();
+  if (!token) {
+    throw new Error("Session expired — sign in again to download PDFs.");
+  }
   const agencyId = getAgencyId();
   let res: Response;
   try {
@@ -141,10 +144,11 @@ export async function downloadReportPdf(reportId: string, filename: string) {
       headers: {
         Authorization: `Bearer ${token}`,
         ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
+        Accept: "application/pdf",
       },
     });
   } catch {
-    throw new Error("Could not download PDF (network/CORS). Try again after refresh.");
+    throw new Error("Could not download PDF (network). Try again after refresh.");
   }
   if (!res.ok) {
     let detail = "Failed to download PDF";
@@ -154,16 +158,29 @@ export async function downloadReportPdf(reportId: string, filename: string) {
     } catch {
       if (res.status === 401) detail = "Session expired — sign in again to download PDFs.";
       else if (res.status === 404) detail = "PDF not found for this report.";
+      else detail = `Failed to download PDF (${res.status})`;
     }
     throw new Error(detail);
   }
   const blob = await res.blob();
+  // Proxy sometimes returns HTML error pages with 200 — reject those
+  const type = (blob.type || res.headers.get("content-type") || "").toLowerCase();
+  if (type.includes("text/html") || blob.size < 64) {
+    throw new Error("PDF download returned invalid content. Redeploy may still be in progress — try again.");
+  }
+  const safeName = (filename || "report.pdf")
+    .replace(/[^\w.\- ]+/g, "_")
+    .replace(/\s+/g, "_");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+  a.download = safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`;
+  a.rel = "noopener";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Delay revoke so Safari/Firefox finish the download
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 export type ChatMessage = {
