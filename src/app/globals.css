@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: clip;
+}
+
 html,
 body {
   margin: 0;
@@ -22,9 +26,11 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
+  overflow-x: clip;
   background-image:
     radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 34%),
     radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--brand-secondary, #134e4a) 12%, transparent), transparent 28%),
@@ -41,4 +47,50 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+.safe-top {
+  padding-top: max(0px, env(safe-area-inset-top));
+}
+
+.safe-bottom {
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawer-enter {
+  animation: drawer-slide-in 0.2s ease-out;
+}
+
+/* Horizontal tab strips: allow swipe without page scroll fighting */
+.tabs-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+
+@media (min-width: 640px) {
+  .tabs-scroll {
+    mask-image: none;
+  }
+}
+
+table {
+  border-collapse: collapse;
 }

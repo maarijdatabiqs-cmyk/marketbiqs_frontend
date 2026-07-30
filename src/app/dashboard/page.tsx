@@ -186,14 +186,60 @@ export default function DashboardPage() {
           </div>
 
           <Card>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-2">
               <h2 className="font-semibold">Client portfolio pulse</h2>
-              <Link href="/clients" className="text-sm text-[var(--accent)]">
+              <Link href="/clients" className="text-sm text-[var(--accent)] shrink-0">
                 Manage all
               </Link>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+
+            {/* Mobile card list */}
+            <div className="space-y-3 md:hidden">
+              {(data.portfolio || []).map((c) => (
+                <Link
+                  key={c.id}
+                  href={`/clients/${c.id}`}
+                  className="block rounded-xl border border-[var(--line)] p-3 hover:bg-black/[0.02]"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{c.name}</div>
+                      <div className="text-xs text-[var(--muted)] mt-0.5">{c.industry || "—"}</div>
+                    </div>
+                    <span className={`text-xs shrink-0 ${c.is_active ? "text-[var(--accent)]" : "text-red-500"}`}>
+                      {c.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-[var(--muted)]">
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.rivals}</span> rivals
+                    </div>
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.features}</span> features
+                    </div>
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.gaps ?? 0}</span> gaps
+                    </div>
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.alerts ?? 0}</span> alerts
+                    </div>
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.reports}</span> reports
+                    </div>
+                    <div>
+                      <span className="tabular-nums text-[var(--ink)] font-medium">{c.tickets}</span> tickets
+                    </div>
+                  </div>
+                </Link>
+              ))}
+              {(data.portfolio || []).length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">No clients yet.</p>
+              ) : null}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
                 <thead>
                   <tr className="text-left text-[var(--muted)] border-b border-[var(--line)]">
                     <th className="py-2 font-medium">Client</th>
@@ -263,9 +309,9 @@ export default function DashboardPage() {
                 ) : (
                   data.recent_insights.map((i) => (
                     <div key={i.id} className="border-b border-[var(--line)] pb-3 last:border-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-medium">{i.title}</div>
-                        <span className="text-xs uppercase text-[var(--accent)]">{i.priority}</span>
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                        <div className="font-medium break-words min-w-0">{i.title}</div>
+                        <span className="text-xs uppercase text-[var(--accent)] shrink-0">{i.priority}</span>
                       </div>
                       <p className="text-sm mt-1 text-[var(--muted)] line-clamp-3">{i.body}</p>
                     </div>

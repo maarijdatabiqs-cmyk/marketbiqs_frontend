@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, Input, Label, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api";
 
@@ -32,6 +33,12 @@ export default function ClientsPage() {
     website: "",
     delivery_emails: "",
   });
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [intelPhase, setIntelPhase] = useState<IntelRunPhase>("running");
+  const [intelName, setIntelName] = useState("");
+  const [intelSuccess, setIntelSuccess] = useState("");
+  const [intelError, setIntelError] = useState("");
+  const intelProgress = useIntelProgress(intelOpen && intelPhase === "running");
 
   async function load() {
     const data = await api<Client[]>("/api/clients");
@@ -46,6 +53,11 @@ export default function ClientsPage() {
     e.preventDefault();
     setError("");
     setBusy(true);
+    setIntelName(form.name);
+    setIntelSuccess("");
+    setIntelError("");
+    setIntelPhase("running");
+    setIntelOpen(true);
     try {
       await api("/api/clients", {
         method: "POST",
@@ -59,11 +71,16 @@ export default function ClientsPage() {
             .filter(Boolean),
         }),
       });
+      setIntelSuccess(`“${form.name}” is set up — rivals and features are being tracked.`);
+      setIntelPhase("success");
       setForm({ name: "", industry: "", website: "", delivery_emails: "" });
       setOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
+      const detail = err instanceof Error ? err.message : "Failed";
+      setError(detail);
+      setIntelError(detail);
+      setIntelPhase("error");
     } finally {
       setBusy(false);
     }
@@ -71,24 +88,41 @@ export default function ClientsPage() {
 
   return (
     <AppShell>
+      <IntelProgressOverlay
+        open={intelOpen}
+        phase={intelPhase}
+        clientName={intelName}
+        stepIndex={intelProgress.stepIndex}
+        progress={intelProgress.progress}
+        elapsedMs={intelProgress.elapsedMs}
+        tipIndex={intelProgress.tipIndex}
+        successMessage={intelSuccess}
+        errorMessage={intelError}
+        onDismiss={() => setIntelOpen(false)}
+      />
       <PageHeader
         title="Client portfolio"
         subtitle="One stacked workspace per brand. Add a client, auto-scan rivals, then run the weekly love → tickets → PDF loop."
         actions={<Button onClick={() => setOpen((v) => !v)}>{open ? "Close form" : "Add client"}</Button>}
       />
-      {error ? <p className="text-red-600 mb-4">{error}</p> : null}
+      {error ? <p className="mb-4 text-red-600">{error}</p> : null}
 
       {open ? (
         <Card className="mb-6">
-          <h2 className="font-semibold mb-4">New client</h2>
-          <form onSubmit={onCreate} className="space-y-4 max-w-2xl">
+          <h2 className="mb-4 font-semibold">New client</h2>
+          <form onSubmit={onCreate} className="max-w-2xl space-y-4">
             <div>
               <Label>Client name</Label>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </div>
             <div>
               <Label>Website</Label>
-              <Input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://" required />
+              <Input
+                value={form.website}
+                onChange={(e) => setForm({ ...form, website: e.target.value })}
+                placeholder="https://"
+                required
+              />
             </div>
             <div>
               <Label>Industry</Label>
@@ -96,54 +130,70 @@ export default function ClientsPage() {
             </div>
             <div>
               <Label>Delivery emails</Label>
-              <Input value={form.delivery_emails} onChange={(e) => setForm({ ...form, delivery_emails: e.target.value })} placeholder="client@brand.com, am@agency.com" />
+              <Input
+                value={form.delivery_emails}
+                onChange={(e) => setForm({ ...form, delivery_emails: e.target.value })}
+                placeholder="client@brand.com, am@agency.com"
+              />
             </div>
             <p className="text-sm text-[var(--muted)]">
               Saving triggers AI profiling and high-risk rival tracking. Tickets wait until you love a feature.
             </p>
-            <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create & run intel"}</Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Working…" : "Create & run intel"}
+            </Button>
           </form>
         </Card>
       ) : null}
 
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4">
           <div>
             <div className="font-semibold">{clients.length} clients</div>
-            <div className="text-xs text-[var(--muted)] mt-0.5">Click a row to open the weekly intelligence loop</div>
+            <div className="mt-0.5 text-xs text-[var(--muted)]">Click a row to open the weekly intelligence loop</div>
           </div>
         </div>
         <div className="divide-y divide-[var(--line)]">
           {clients.map((c) => (
-            <Link
-              key={c.id}
-              href={`/clients/${c.id}`}
-              className="block px-5 py-4 hover:bg-black/[0.02] transition"
-            >
+            <Link key={c.id} href={`/clients/${c.id}`} className="block px-5 py-4 transition hover:bg-black/[0.02]">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h2 className="font-semibold truncate">{c.name}</h2>
-                    <span className={`text-[10px] uppercase tracking-wide ${c.is_active ? "text-[var(--accent)]" : "text-red-500"}`}>
+                    <h2 className="truncate font-semibold">{c.name}</h2>
+                    <span
+                      className={`text-[10px] uppercase tracking-wide ${
+                        c.is_active ? "text-[var(--accent)]" : "text-red-500"
+                      }`}
+                    >
                       {c.is_active ? "Active" : "Inactive"}
                     </span>
                   </div>
-                  <p className="text-sm text-[var(--muted)] mt-1 truncate">
+                  <p className="mt-1 truncate text-sm text-[var(--muted)]">
                     {c.industry || "Industry TBD"} · {c.website || "No website"} · delivery {c.delivery_channel}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-4 text-sm text-[var(--muted)]">
-                  <span><strong className="text-[var(--ink)]">{c.rivals_count ?? 0}</strong> rivals</span>
-                  <span><strong className="text-[var(--ink)]">{c.features_count ?? 0}</strong> features</span>
-                  <span><strong className="text-[var(--ink)]">{c.alerts_open ?? 0}</strong> open alerts</span>
-                  <span><strong className="text-[var(--ink)]">{c.tickets_count ?? 0}</strong> tickets</span>
-                  <span><strong className="text-[var(--ink)]">{c.reports_count ?? 0}</strong> reports</span>
+                  <span>
+                    <strong className="text-[var(--ink)]">{c.rivals_count ?? 0}</strong> rivals
+                  </span>
+                  <span>
+                    <strong className="text-[var(--ink)]">{c.features_count ?? 0}</strong> features
+                  </span>
+                  <span>
+                    <strong className="text-[var(--ink)]">{c.alerts_open ?? 0}</strong> open alerts
+                  </span>
+                  <span>
+                    <strong className="text-[var(--ink)]">{c.tickets_count ?? 0}</strong> tickets
+                  </span>
+                  <span>
+                    <strong className="text-[var(--ink)]">{c.reports_count ?? 0}</strong> reports
+                  </span>
                 </div>
               </div>
             </Link>
           ))}
-          {clients.length === 0 ? (
-            <div className="px-5 py-10 text-sm text-[var(--muted)]">No clients yet. Add your first brand to start the weekly loop.</div>
+          {!clients.length ? (
+            <div className="px-5 py-10 text-sm text-[var(--muted)]">No clients yet. Add your first brand above.</div>
           ) : null}
         </div>
       </Card>

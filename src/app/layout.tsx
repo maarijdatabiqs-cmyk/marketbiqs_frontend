@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
@@ -21,6 +21,12 @@ export const metadata: Metadata = {
   title: "MarketBiqs — Agency Competitive Intelligence",
   description:
     "Multi-client competitor tracking, white-label reports, and AI research ops for marketing agencies.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

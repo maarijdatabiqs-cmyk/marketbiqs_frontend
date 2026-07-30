@@ -78,12 +78,15 @@ export default function TeamPage() {
           <h2 className="font-semibold mb-4">Current members</h2>
           <div className="space-y-3">
             {members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border-b border-[var(--line)] pb-3">
-                <div>
-                  <div className="font-medium">{m.user.full_name}</div>
-                  <div className="text-sm text-[var(--muted)]">{m.user.email}</div>
+              <div
+                key={m.id}
+                className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between border-b border-[var(--line)] pb-3"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{m.user.full_name}</div>
+                  <div className="text-sm text-[var(--muted)] truncate">{m.user.email}</div>
                 </div>
-                <span className="text-xs uppercase text-[var(--accent)]">{m.role}</span>
+                <span className="text-xs uppercase text-[var(--accent)] shrink-0">{m.role}</span>
               </div>
             ))}
           </div>

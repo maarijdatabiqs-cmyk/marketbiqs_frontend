@@ -36,7 +36,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen max-w-3xl mx-auto px-6 py-10">
+    <div className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <PageHeader
         title="Instant agency onboarding"
         subtitle={`Welcome${agency ? `, ${agency.name}` : ""}. Brand your reports and add your first client in one pass.`}

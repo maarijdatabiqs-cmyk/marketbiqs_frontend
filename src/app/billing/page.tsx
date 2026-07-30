@@ -69,15 +69,17 @@ export default function BillingPage() {
               <p className="text-sm text-[var(--muted)] mt-2">
                 $49 per pack. Each pack adds 1 client seat + 8 reports + 800 scrape units.
               </p>
-              <div className="mt-4 flex items-center gap-3">
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
                 <input
                   type="number"
                   min={0}
-                  className="w-24 rounded-xl border border-[var(--line)] px-3 py-2"
+                  className="w-full sm:w-24 rounded-xl border border-[var(--line)] px-3 py-2"
                   value={packs}
                   onChange={(e) => setPacks(Number(e.target.value))}
                 />
-                <Button onClick={checkout}>Add packs / Stripe checkout</Button>
+                <Button onClick={checkout} className="w-full sm:w-auto">
+                  Add packs / Stripe checkout
+                </Button>
               </div>
               <p className="text-xs text-[var(--muted)] mt-3">
                 Current packs: {budget.client_pack_count} · meters: reports {budget.reports_used}/{budget.reports_quota}, scrapes {budget.scrape_units_used}/{budget.scrape_quota}

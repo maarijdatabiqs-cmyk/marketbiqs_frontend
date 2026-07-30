@@ -45,11 +45,16 @@ export default function ReportsPage() {
               <h2 className="font-semibold mt-1">{r.title}</h2>
               <p className="text-sm text-[var(--muted)] mt-1 line-clamp-2">{r.summary}</p>
             </div>
-            <div className="flex gap-2">
-              <Link href={`/clients/${r.client_id}`}>
-                <Button variant="ghost">Open client</Button>
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <Link href={`/clients/${r.client_id}`} className="flex-1 sm:flex-none">
+                <Button variant="ghost" className="w-full sm:w-auto">
+                  Open client
+                </Button>
               </Link>
-              <Button onClick={() => downloadReportPdf(r.id, `${r.title}.pdf`).catch((e) => setError(e.message))}>
+              <Button
+                className="flex-1 sm:flex-none"
+                onClick={() => downloadReportPdf(r.id, `${r.title}.pdf`).catch((e) => setError(e.message))}
+              >
                 Download PDF
               </Button>
             </div>

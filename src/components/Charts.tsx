@@ -29,9 +29,14 @@ export function BarChart({
       ) : (
         <div className="space-y-2">
           {data.map((d) => (
-            <div key={d.label} className="grid grid-cols-[110px_1fr_40px] gap-2 items-center text-sm">
-              <div className="truncate text-[var(--muted)]">{d.label}</div>
-              <div className="h-2.5 rounded-full bg-black/5 overflow-hidden">
+            <div
+              key={d.label}
+              className="grid grid-cols-[minmax(0,4.5rem)_1fr_2rem] sm:grid-cols-[110px_1fr_40px] gap-1.5 sm:gap-2 items-center text-xs sm:text-sm"
+            >
+              <div className="truncate text-[var(--muted)]" title={d.label}>
+                {d.label}
+              </div>
+              <div className="h-2.5 rounded-full bg-black/5 overflow-hidden min-w-0">
                 <div className="h-full rounded-full" style={{ width: `${(d.value / max) * 100}%`, background: color }} />
               </div>
               <div className="text-right tabular-nums">{d.value}</div>
@@ -52,9 +57,9 @@ export function UsageMeters({ title, data }: { title: string; data: UsageBar[] }
           const pct = d.quota > 0 ? Math.min(100, Math.round((d.used / d.quota) * 100)) : 0;
           return (
             <div key={d.label}>
-              <div className="flex justify-between text-sm mb-1">
-                <span>{d.label}</span>
-                <span className="text-[var(--muted)] tabular-nums">
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between text-sm mb-1">
+                <span className="min-w-0 break-words">{d.label}</span>
+                <span className="text-[var(--muted)] tabular-nums shrink-0">
                   {d.used}/{d.quota} · {pct}%
                 </span>
               </div>
@@ -113,7 +118,7 @@ export function ActivityChart({ title, data }: { title: string; data: ActivityPo
       {data.every((d) => d.reports + d.tickets + d.alerts + d.deliveries === 0) ? (
         <p className="text-sm text-[var(--muted)]">No activity in the last 14 days yet. Run intel to populate.</p>
       ) : (
-        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto">
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-auto min-w-0">
           {[0, 0.5, 1].map((t) => {
             const y = pad + innerH * (1 - t);
             return <line key={t} x1={pad} x2={w - pad} y1={y} y2={y} stroke="rgba(15,23,42,0.08)" />;
@@ -163,19 +168,19 @@ export function DonutChart({ title, data }: { title: string; data: Point[] }) {
       {data.length === 0 || data.every((d) => d.value === 0) ? (
         <p className="text-sm text-[var(--muted)]">No data yet.</p>
       ) : (
-        <div className="flex items-center gap-4">
-          <svg viewBox="0 0 100 100" className="w-28 h-28 shrink-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <svg viewBox="0 0 100 100" className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 mx-auto sm:mx-0">
             {slices.map((s) => (
               <path key={s.label} d={arc(s.start, s.sweep)} fill={s.color} />
             ))}
             <circle cx="50" cy="50" r="20" fill="var(--panel)" />
           </svg>
-          <div className="space-y-1.5 text-sm">
+          <div className="w-full space-y-1.5 text-sm min-w-0">
             {slices.map((s) => (
-              <div key={s.label} className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />
-                <span className="text-[var(--muted)]">{s.label}</span>
-                <span className="tabular-nums ml-auto">{s.value}</span>
+              <div key={s.label} className="flex items-center gap-2 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className="text-[var(--muted)] truncate">{s.label}</span>
+                <span className="tabular-nums ml-auto shrink-0">{s.value}</span>
               </div>
             ))}
           </div>
