@@ -120,11 +120,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const data = await api<{ access_token: string }>("/api/auth/login", {
+    const data = await api<{ access_token: string; agency_id?: string | null }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    setSession(data.access_token);
+    setSession(data.access_token, data.agency_id || null);
     setLoading(true);
     await refresh();
   }, [refresh]);
@@ -137,11 +137,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       agency_name: string;
       workspace_mode?: string;
     }) => {
-      const data = await api<{ access_token: string }>("/api/auth/register", {
+      const data = await api<{ access_token: string; agency_id?: string | null }>("/api/auth/register", {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      setSession(data.access_token);
+      setSession(data.access_token, data.agency_id || null);
       setLoading(true);
       await refresh();
     },

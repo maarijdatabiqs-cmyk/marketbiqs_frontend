@@ -15,9 +15,13 @@ function getAgencyId() {
   return localStorage.getItem("biqs_agency_id");
 }
 
-export function setSession(token: string, agencyId?: string) {
+export function setSession(token: string, agencyId?: string | null) {
   localStorage.setItem("biqs_token", token);
-  if (agencyId) localStorage.setItem("biqs_agency_id", agencyId);
+  if (agencyId) {
+    localStorage.setItem("biqs_agency_id", agencyId);
+  } else {
+    localStorage.removeItem("biqs_agency_id");
+  }
 }
 
 export function clearSession() {
