@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
+import { IntelSetupDialog, IntelSetupOptions } from "@/components/IntelSetupDialog";
 import { Button, Card, Input, Label, PageHeader, Textarea } from "@/components/ui";
 import { api, downloadReportPdf, runClientIntel } from "@/lib/api";
 
@@ -50,6 +51,7 @@ export default function ClientDetailPage() {
   const [intelPhase, setIntelPhase] = useState<IntelRunPhase>("running");
   const [intelSuccess, setIntelSuccess] = useState("");
   const [intelError, setIntelError] = useState("");
+  const [setupOpen, setSetupOpen] = useState(false);
   const intelProgress = useIntelProgress(intelOpen && intelPhase === "running");
   const [featureForm, setFeatureForm] = useState({ name: "", category: "General", description: "" });
   const [compForm, setCompForm] = useState({ name: "", website: "" });
@@ -133,7 +135,8 @@ export default function ClientDetailPage() {
     [alerts],
   );
 
-  async function runIntel() {
+  async function startIntelRun(options: IntelSetupOptions) {
+    setSetupOpen(false);
     setBusy("pack");
     setError("");
     setMessage("");
@@ -142,7 +145,7 @@ export default function ClientDetailPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      const job = await runClientIntel(clientId);
+      const job = await runClientIntel(clientId, options);
       const pack = job.result_meta?.pack;
       const enrich = job.result_meta?.enrich;
       const summary = `Intel run complete · features ${enrich?.features || 0} · rivals ${pack?.competitors || 0} · report ready.`;
@@ -342,6 +345,13 @@ export default function ClientDetailPage() {
 
   return (
     <AppShell>
+      <IntelSetupDialog
+        open={setupOpen}
+        clientName={client?.name}
+        busy={busy === "pack"}
+        onCancel={() => setSetupOpen(false)}
+        onConfirm={startIntelRun}
+      />
       <IntelProgressOverlay
         open={intelOpen}
         phase={intelPhase}
@@ -365,7 +375,7 @@ export default function ClientDetailPage() {
             <Link href={`/portal/${clientId}`}>
               <Button variant="ghost">Client GPT portal</Button>
             </Link>
-            <Button onClick={runIntel} disabled={!!busy}>
+            <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
               {busy === "pack" ? "Working…" : "Run intel now"}
             </Button>
           </div>
@@ -439,7 +449,7 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-[var(--muted)] mb-3">
                   No recommendations yet. Run intel to generate missing-feature and improvement suggestions.
                 </p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -479,7 +489,7 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-[var(--muted)] mb-3">
                   No owned features yet. Run intel to auto-fetch or add manually above.
                 </p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -551,7 +561,7 @@ export default function ClientDetailPage() {
             {competitors.length === 0 ? (
               <Card>
                 <p className="text-sm text-[var(--muted)] mb-3">No competitors tracked yet.</p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -597,7 +607,7 @@ export default function ClientDetailPage() {
                   {(competitorDetail.features || []).length === 0 ? (
                     <div className="space-y-3">
                       <p className="text-sm text-[var(--muted)]">No features listed for this rival yet.</p>
-                      <Button onClick={runIntel} disabled={!!busy}>
+                      <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                         {busy === "pack" ? "Working…" : "Run intel now"}
                       </Button>
                     </div>
@@ -685,7 +695,7 @@ export default function ClientDetailPage() {
             {!comparisons.length ? (
               <Card>
                 <p className="text-sm text-[var(--muted)] mb-3">No comparison rows for this rival yet.</p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -733,7 +743,7 @@ export default function ClientDetailPage() {
             {!gaps.length ? (
               <Card>
                 <p className="text-sm text-[var(--muted)] mb-3">No gaps yet.</p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -782,7 +792,7 @@ export default function ClientDetailPage() {
                 <p className="text-sm text-[var(--muted)] mb-3">
                   No competitor-specialty alerts yet (features they have that you don’t).
                 </p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -865,7 +875,7 @@ export default function ClientDetailPage() {
               <p className="text-sm text-[var(--muted)] mb-3">
                 Runs automatically once every 24 hours. Trigger a fresh run anytime.
               </p>
-              <Button onClick={runIntel} disabled={!!busy}>
+              <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                 {busy === "pack" ? "Working…" : "Run intel + generate report now"}
               </Button>
             </Card>
@@ -902,7 +912,7 @@ export default function ClientDetailPage() {
             {!reports.length ? (
               <Card>
                 <p className="text-sm text-[var(--muted)] mb-3">No reports yet.</p>
-                <Button onClick={runIntel} disabled={!!busy}>
+                <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                   {busy === "pack" ? "Working…" : "Run intel now"}
                 </Button>
               </Card>
@@ -916,7 +926,7 @@ export default function ClientDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <h2 className="font-semibold">Trends</h2>
                 {!trends.length ? (
-                  <Button onClick={runIntel} disabled={!!busy}>
+                  <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                     {busy === "pack" ? "Working…" : "Run intel now"}
                   </Button>
                 ) : null}
@@ -960,7 +970,7 @@ export default function ClientDetailPage() {
                 {!sentiment.length ? (
                   <div className="space-y-3">
                     <p className="text-sm text-[var(--muted)]">No sentiment data yet.</p>
-                    <Button onClick={runIntel} disabled={!!busy}>
+                    <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                       {busy === "pack" ? "Working…" : "Run intel now"}
                     </Button>
                   </div>
@@ -990,7 +1000,7 @@ export default function ClientDetailPage() {
                 {!snapshots.length ? (
                   <div className="space-y-3">
                     <p className="text-sm text-[var(--muted)]">No snapshots yet.</p>
-                    <Button onClick={runIntel} disabled={!!busy}>
+                    <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                       {busy === "pack" ? "Working…" : "Run intel now"}
                     </Button>
                   </div>
@@ -1021,7 +1031,7 @@ export default function ClientDetailPage() {
                 {!jobs.length ? (
                   <div className="space-y-3">
                     <p className="text-sm text-[var(--muted)]">No tracking jobs yet.</p>
-                    <Button onClick={runIntel} disabled={!!busy}>
+                    <Button onClick={() => setSetupOpen(true)} disabled={!!busy}>
                       {busy === "pack" ? "Working…" : "Run intel now"}
                     </Button>
                   </div>

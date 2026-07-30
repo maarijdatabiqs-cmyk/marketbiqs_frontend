@@ -96,9 +96,21 @@ export type IntelJob = {
 };
 
 /** Start client intel in the background and poll until completed/failed. */
-export async function runClientIntel(clientId: string): Promise<IntelJob> {
+export async function runClientIntel(
+  clientId: string,
+  options: {
+    competitor_scope: "global" | "local";
+    competitor_country?: string;
+    competitor_count: number;
+  },
+): Promise<IntelJob> {
   const started = await api<{ job_id: string; status: string }>(`/api/clients/${clientId}/auto-run`, {
     method: "POST",
+    body: JSON.stringify({
+      competitor_scope: options.competitor_scope,
+      competitor_country: options.competitor_country || null,
+      competitor_count: options.competitor_count,
+    }),
   });
   if (!started?.job_id) {
     throw new Error("Intel did not return a job id");

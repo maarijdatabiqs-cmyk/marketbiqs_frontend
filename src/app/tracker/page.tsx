@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
+import { IntelSetupDialog, IntelSetupOptions } from "@/components/IntelSetupDialog";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { api, runClientIntel } from "@/lib/api";
 
@@ -29,6 +30,8 @@ export default function TrackerPage() {
   const [intelPhase, setIntelPhase] = useState<IntelRunPhase>("running");
   const [intelSuccess, setIntelSuccess] = useState("");
   const [intelError, setIntelError] = useState("");
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupClient, setSetupClient] = useState<{ id: string; name: string } | null>(null);
   const intelProgress = useIntelProgress(intelOpen && intelPhase === "running");
 
   async function load() {
@@ -40,7 +43,15 @@ export default function TrackerPage() {
     load().catch((err) => setError(err.message));
   }, []);
 
-  async function runIntel(clientId: string, name: string) {
+  function openSetup(clientId: string, name: string) {
+    setSetupClient({ id: clientId, name });
+    setSetupOpen(true);
+  }
+
+  async function runIntel(options: IntelSetupOptions) {
+    if (!setupClient) return;
+    const { id: clientId, name } = setupClient;
+    setSetupOpen(false);
     setBusyId(clientId);
     setIntelName(name);
     setError("");
@@ -50,7 +61,7 @@ export default function TrackerPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      const job = await runClientIntel(clientId);
+      const job = await runClientIntel(clientId, options);
       const pack = job.result_meta?.pack;
       const enrich = job.result_meta?.enrich;
       const summary = `Intel complete for ${name} · features ${enrich?.features || 0} · rivals ${pack?.competitors || 0}`;
@@ -65,11 +76,22 @@ export default function TrackerPage() {
       setIntelPhase("error");
     } finally {
       setBusyId("");
+      setSetupClient(null);
     }
   }
 
   return (
     <AppShell>
+      <IntelSetupDialog
+        open={setupOpen}
+        clientName={setupClient?.name}
+        busy={!!busyId}
+        onCancel={() => {
+          setSetupOpen(false);
+          setSetupClient(null);
+        }}
+        onConfirm={runIntel}
+      />
       <IntelProgressOverlay
         open={intelOpen}
         phase={intelPhase}
@@ -143,7 +165,7 @@ export default function TrackerPage() {
                     Open
                   </Button>
                 </Link>
-                <Button className="w-full sm:w-auto" onClick={() => runIntel(c.id, c.name)} disabled={!!busyId}>
+                <Button className="w-full sm:w-auto" onClick={() => openSetup(c.id, c.name)} disabled={!!busyId}>
                   {busyId === c.id ? "Working…" : "Run intel"}
                 </Button>
               </div>
