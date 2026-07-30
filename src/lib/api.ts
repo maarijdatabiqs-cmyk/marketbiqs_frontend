@@ -43,7 +43,18 @@ export async function api<T>(
   const agencyId = getAgencyId();
   if (agencyId) headers.set("X-Agency-Id", agencyId);
 
-  const res = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
+      throw new Error(
+        "Could not reach the API (timeout or network). Try again — long AI/Jira jobs sometimes hit the host limit.",
+      );
+    }
+    throw err instanceof Error ? err : new Error(msg);
+  }
   if (!res.ok) {
     let detail = "Request failed";
     try {

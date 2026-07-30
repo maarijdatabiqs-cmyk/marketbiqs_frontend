@@ -241,6 +241,7 @@ export default function ClientDetailPage() {
   async function openPlan(featureId: string) {
     setBusy("plan");
     setError("");
+    setMessage("");
     try {
       const generated = await api<any[]>(`/api/clients/${clientId}/features/${featureId}/development-plan`, {
         method: "POST",
@@ -248,7 +249,7 @@ export default function ClientDetailPage() {
       setSelectedFeatureId(featureId);
       setTickets(generated);
       setTab("wishlist");
-      setMessage(`${generated.length} development tickets ready`);
+      setMessage(`${generated.length} development tickets ready — review, then push to Jira when ready.`);
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Plan failed");
@@ -260,13 +261,20 @@ export default function ClientDetailPage() {
   async function pushJira() {
     if (!selectedFeatureId) return;
     setBusy("jira");
+    setError("");
+    setMessage("");
     try {
       const created = await api<any[]>(
         `/api/clients/${clientId}/features/${selectedFeatureId}/tickets/create-all`,
         { method: "POST" },
       );
       setTickets(created);
-      setMessage(`Pushed ${created.filter((t) => t.jira_key).length} tickets to Jira`);
+      const pushed = created.filter((t) => t.jira_key).length;
+      if (pushed === 0) {
+        setError("No tickets were pushed. Connect Jira under Integrations, then try again.");
+      } else {
+        setMessage(`Pushed ${pushed} of ${created.length} tickets to Jira`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Jira push failed");
     } finally {
