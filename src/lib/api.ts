@@ -32,6 +32,9 @@ export function clearSession() {
 /**
  * Browser: same-origin `/api/...` so Next.js rewrites proxy to the backend (avoids CORS).
  * Server: absolute backend URL.
+ *
+ * Long AI jobs must not rely on a single proxied request — use runClientIntel() which
+ * starts a background job and polls (Next/Railway proxies often time out around 30–60s).
  */
 function apiBase() {
   if (typeof window !== "undefined") return "";
@@ -78,6 +81,38 @@ export async function api<T>(
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) return res.json();
   return undefined as T;
+}
+
+export type IntelJob = {
+  id: string;
+  status: string;
+  detail?: string | null;
+  result_meta?: {
+    enrich?: { features?: number };
+    pack?: { competitors?: number };
+    report_id?: string;
+    [key: string]: unknown;
+  } | null;
+};
+
+/** Start client intel in the background and poll until completed/failed. */
+export async function runClientIntel(clientId: string): Promise<IntelJob> {
+  const started = await api<{ job_id: string; status: string }>(`/api/clients/${clientId}/auto-run`, {
+    method: "POST",
+  });
+  if (!started?.job_id) {
+    throw new Error("Intel did not return a job id");
+  }
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const job = await api<IntelJob>(`/api/clients/${clientId}/jobs/${started.job_id}`);
+    if (job.status === "completed") return job;
+    if (job.status === "failed") {
+      throw new Error(job.detail || "Intel run failed");
+    }
+  }
+  throw new Error("Intel is still running after 5 minutes. Refresh and check Radar → jobs.");
 }
 
 export function pdfUrl(reportId: string) {

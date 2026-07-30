@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, Input, Label, PageHeader, Textarea } from "@/components/ui";
-import { api, downloadReportPdf } from "@/lib/api";
+import { api, downloadReportPdf, runClientIntel } from "@/lib/api";
 
 type Tab = "loop" | "features" | "competitors" | "compare" | "gaps" | "alerts" | "wishlist" | "reports" | "radar";
 
@@ -142,8 +142,10 @@ export default function ClientDetailPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      const res = await api<any>(`/api/clients/${clientId}/auto-run`, { method: "POST" });
-      const summary = `Intel run complete · features ${res.enrich?.features || 0} · rivals ${res.pack?.competitors || 0} · report ready.`;
+      const job = await runClientIntel(clientId);
+      const pack = job.result_meta?.pack;
+      const enrich = job.result_meta?.enrich;
+      const summary = `Intel run complete · features ${enrich?.features || 0} · rivals ${pack?.competitors || 0} · report ready.`;
       setMessage(summary);
       setIntelSuccess(summary);
       setIntelPhase("success");

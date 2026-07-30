@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, PageHeader } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, runClientIntel } from "@/lib/api";
 
 type ClientRow = {
   id: string;
@@ -50,8 +50,10 @@ export default function TrackerPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      const res = await api<any>(`/api/clients/${clientId}/auto-run`, { method: "POST" });
-      const summary = `Intel complete for ${name} · features ${res.enrich?.features || 0} · rivals ${res.pack?.competitors || 0}`;
+      const job = await runClientIntel(clientId);
+      const pack = job.result_meta?.pack;
+      const enrich = job.result_meta?.enrich;
+      const summary = `Intel complete for ${name} · features ${enrich?.features || 0} · rivals ${pack?.competitors || 0}`;
       setMessage(summary);
       setIntelSuccess(summary);
       setIntelPhase("success");
