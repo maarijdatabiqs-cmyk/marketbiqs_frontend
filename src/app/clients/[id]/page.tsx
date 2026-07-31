@@ -287,6 +287,28 @@ export default function ClientDetailPage() {
     }
   }
 
+  async function pushBiqs() {
+    if (!selectedFeatureId) return;
+    setBusy("biqs");
+    setError("");
+    setMessage("");
+    try {
+      const created = await api<any[]>(
+        `/api/clients/${clientId}/features/${selectedFeatureId}/tickets/push-biqs`,
+        { method: "POST" },
+      );
+      setMessage(
+        created.length
+          ? `Added ${created.length} tickets to the Biqs board — open Biqs to drag them across the workflow.`
+          : "These tickets are already on the Biqs board.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Biqs push failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function addFeature(e: FormEvent) {
     e.preventDefault();
     await api(`/api/clients/${clientId}/features`, { method: "POST", body: JSON.stringify(featureForm) });
@@ -822,7 +844,13 @@ export default function ClientDetailPage() {
                 <Button onClick={pushJira} disabled={!tickets.length || !!busy}>
                   {busy === "jira" ? "Pushing..." : "Add tickets to Jira"}
                 </Button>
+                <Button variant="ghost" onClick={pushBiqs} disabled={!tickets.length || !!busy}>
+                  {busy === "biqs" ? "Adding..." : "Add tickets to Biqs"}
+                </Button>
               </div>
+              <p className="mt-3 text-sm text-[var(--muted)]">
+                No Jira? Use Biqs — the built-in board with Backlog, To do, In progress, In review, and Done.
+              </p>
             </Card>
             {wishlist.map((f) => (
               <Card key={f.id}>

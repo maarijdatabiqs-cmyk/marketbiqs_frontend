@@ -8,6 +8,7 @@ import {
   Building2,
   CreditCard,
   FileText,
+  KanbanSquare,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -31,6 +32,7 @@ const workNav: NavItem[] = [
   { href: "/tracker", label: "Tracker", icon: Radar },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/delivery", label: "Delivery", icon: Send },
+  { href: "/biqs", label: "Biqs", icon: KanbanSquare },
   { href: "/assistant", label: "Assistant", icon: Bot },
 ];
 
