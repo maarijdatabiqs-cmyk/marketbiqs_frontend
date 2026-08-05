@@ -184,7 +184,6 @@ export default function ClientDetailPage() {
       .sort((a, b) => b.value - a.value);
   }, [gaps]);
 
-  async function runIntel() {
   async function startIntelRun(options: IntelSetupOptions) {
     setSetupOpen(false);
     setBusy("pack");
