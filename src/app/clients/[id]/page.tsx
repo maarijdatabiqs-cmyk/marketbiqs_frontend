@@ -2,14 +2,27 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
+import { FeatureStanceChart, GapsByRivalChart } from "@/components/Charts";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { IntelSetupDialog, IntelSetupOptions } from "@/components/IntelSetupDialog";
 import { Button, Card, Input, Label, PageHeader, Textarea } from "@/components/ui";
 import { api, downloadReportPdf, runClientIntel } from "@/lib/api";
 
 type Tab = "loop" | "features" | "competitors" | "compare" | "gaps" | "alerts" | "wishlist" | "reports" | "radar";
+
+const VALID_TABS: Tab[] = [
+  "loop",
+  "features",
+  "competitors",
+  "compare",
+  "gaps",
+  "alerts",
+  "wishlist",
+  "reports",
+  "radar",
+];
 
 const TAB_HELP: Record<Tab, string> = {
   loop: "AI recommends missing competitor features and improvements to your current ones.",
@@ -23,10 +36,16 @@ const TAB_HELP: Record<Tab, string> = {
   radar: "Trends, sentiment, snapshots, and tracking jobs for this client.",
 };
 
+function tabFromQuery(raw: string | null): Tab {
+  if (raw && (VALID_TABS as string[]).includes(raw)) return raw as Tab;
+  return "loop";
+}
+
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const clientId = params.id;
-  const [tab, setTab] = useState<Tab>("loop");
+  const [tab, setTab] = useState<Tab>(() => tabFromQuery(searchParams.get("tab")));
   const [client, setClient] = useState<any>(null);
   const [competitors, setCompetitors] = useState<any[]>([]);
   const [features, setFeatures] = useState<any[]>([]);
@@ -55,6 +74,10 @@ export default function ClientDetailPage() {
   const intelProgress = useIntelProgress(intelOpen && intelPhase === "running");
   const [featureForm, setFeatureForm] = useState({ name: "", category: "General", description: "" });
   const [compForm, setCompForm] = useState({ name: "", website: "" });
+
+  useEffect(() => {
+    setTab(tabFromQuery(searchParams.get("tab")));
+  }, [searchParams]);
 
   async function loadAll() {
     const soft = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
@@ -135,6 +158,33 @@ export default function ClientDetailPage() {
     [alerts],
   );
 
+  const compareStance = useMemo(() => {
+    let youLead = 0;
+    let parity = 0;
+    let theyLead = 0;
+    for (const row of comparisons) {
+      const ours = String(row.our_status || "").toLowerCase();
+      const theirs = String(row.competitor_status || "").toLowerCase();
+      if (ours === "leading" || theirs === "lagging") youLead += 1;
+      else if (theirs === "leading" || ours === "lagging") theyLead += 1;
+      else parity += 1;
+    }
+    return { youLead, parity, theyLead };
+  }, [comparisons]);
+
+  const gapsChartData = useMemo(() => {
+    const byRival = new Map<string, number>();
+    for (const gap of gaps) {
+      const name = gap.competitor_name || "Rival";
+      const weight = Math.max(1, (gap.leading || []).length || 1);
+      byRival.set(name, (byRival.get(name) || 0) + weight);
+    }
+    return [...byRival.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [gaps]);
+
+  async function runIntel() {
   async function startIntelRun(options: IntelSetupOptions) {
     setSetupOpen(false);
     setBusy("pack");
@@ -670,6 +720,16 @@ export default function ClientDetailPage() {
                 </p>
               ) : null}
             </Card>
+            <Card>
+              <FeatureStanceChart
+                title="How you compare"
+                hint="Quick view of where this client is ahead, even, or behind the selected competitor."
+                youLead={compareStance.youLead}
+                parity={compareStance.parity}
+                theyLead={compareStance.theyLead}
+                rivalName={selectedCompetitor?.name}
+              />
+            </Card>
             {comparisons.map((row) => (
               <Card key={row.id}>
                 <div className="font-semibold">{row.feature_name}</div>
@@ -727,6 +787,9 @@ export default function ClientDetailPage() {
 
         {tab === "gaps" ? (
           <>
+            <Card>
+              <GapsByRivalChart data={gapsChartData} />
+            </Card>
             {gaps.map((gap) => (
               <Card key={gap.id}>
                 <div className="font-semibold">{gap.competitor_name}</div>
