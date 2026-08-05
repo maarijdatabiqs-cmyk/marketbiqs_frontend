@@ -15,9 +15,13 @@ function getAgencyId() {
   return localStorage.getItem("biqs_agency_id");
 }
 
-export function setSession(token: string, agencyId?: string) {
+export function setSession(token: string, agencyId?: string | null) {
   localStorage.setItem("biqs_token", token);
-  if (agencyId) localStorage.setItem("biqs_agency_id", agencyId);
+  if (agencyId) {
+    localStorage.setItem("biqs_agency_id", agencyId);
+  } else {
+    localStorage.removeItem("biqs_agency_id");
+  }
 }
 
 export function clearSession() {
@@ -25,8 +29,15 @@ export function clearSession() {
   localStorage.removeItem("biqs_agency_id");
 }
 
-/** Empty API_URL = same-origin (Next.js rewrites proxy to backend). */
+/**
+ * Browser: same-origin `/api/...` so Next.js rewrites proxy to the backend (avoids CORS).
+ * Server: absolute backend URL.
+ *
+ * Long AI jobs must not rely on a single proxied request — use runClientIntel() which
+ * starts a background job and polls (Next/Railway proxies often time out around 30–60s).
+ */
 function apiBase() {
+  if (typeof window !== "undefined") return "";
   return API_URL;
 }
 
@@ -43,7 +54,18 @@ export async function api<T>(
   const agencyId = getAgencyId();
   if (agencyId) headers.set("X-Agency-Id", agencyId);
 
-  const res = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, { ...options, headers });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
+      throw new Error(
+        "Could not reach the API (timeout or network). Try again — long AI/Jira jobs sometimes hit the host limit.",
+      );
+    }
+    throw err instanceof Error ? err : new Error(msg);
+  }
   if (!res.ok) {
     let detail = "Request failed";
     try {
@@ -61,6 +83,50 @@ export async function api<T>(
   return undefined as T;
 }
 
+export type IntelJob = {
+  id: string;
+  status: string;
+  detail?: string | null;
+  result_meta?: {
+    enrich?: { features?: number };
+    pack?: { competitors?: number };
+    report_id?: string;
+    [key: string]: unknown;
+  } | null;
+};
+
+/** Start client intel in the background and poll until completed/failed. */
+export async function runClientIntel(
+  clientId: string,
+  options: {
+    competitor_scope: "global" | "local";
+    competitor_country?: string;
+    competitor_count: number;
+  },
+): Promise<IntelJob> {
+  const started = await api<{ job_id: string; status: string }>(`/api/clients/${clientId}/auto-run`, {
+    method: "POST",
+    body: JSON.stringify({
+      competitor_scope: options.competitor_scope,
+      competitor_country: options.competitor_country || null,
+      competitor_count: options.competitor_count,
+    }),
+  });
+  if (!started?.job_id) {
+    throw new Error("Intel did not return a job id");
+  }
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const job = await api<IntelJob>(`/api/clients/${clientId}/jobs/${started.job_id}`);
+    if (job.status === "completed") return job;
+    if (job.status === "failed") {
+      throw new Error(job.detail || "Intel run failed");
+    }
+  }
+  throw new Error("Intel is still running after 5 minutes. Refresh and check Radar → jobs.");
+}
+
 export function pdfUrl(reportId: string) {
   const token = getToken();
   return `${apiBase()}/api/reports/${reportId}/pdf?token=${token || ""}`;
@@ -68,21 +134,53 @@ export function pdfUrl(reportId: string) {
 
 export async function downloadReportPdf(reportId: string, filename: string) {
   const token = getToken();
+  if (!token) {
+    throw new Error("Session expired — sign in again to download PDFs.");
+  }
   const agencyId = getAgencyId();
-  const res = await fetch(`${apiBase()}/api/reports/${reportId}/pdf`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
-    },
-  });
-  if (!res.ok) throw new Error("Failed to download PDF");
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/api/reports/${reportId}/pdf`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(agencyId ? { "X-Agency-Id": agencyId } : {}),
+        Accept: "application/pdf",
+      },
+    });
+  } catch {
+    throw new Error("Could not download PDF (network). Try again after refresh.");
+  }
+  if (!res.ok) {
+    let detail = "Failed to download PDF";
+    try {
+      const data = (await res.json()) as ApiError;
+      if (typeof data.detail === "string") detail = data.detail;
+    } catch {
+      if (res.status === 401) detail = "Session expired — sign in again to download PDFs.";
+      else if (res.status === 404) detail = "PDF not found for this report.";
+      else detail = `Failed to download PDF (${res.status})`;
+    }
+    throw new Error(detail);
+  }
   const blob = await res.blob();
+  // Proxy sometimes returns HTML error pages with 200 — reject those
+  const type = (blob.type || res.headers.get("content-type") || "").toLowerCase();
+  if (type.includes("text/html") || blob.size < 64) {
+    throw new Error("PDF download returned invalid content. Redeploy may still be in progress — try again.");
+  }
+  const safeName = (filename || "report.pdf")
+    .replace(/[^\w.\- ]+/g, "_")
+    .replace(/\s+/g, "_");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`;
+  a.rel = "noopener";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  // Delay revoke so Safari/Firefox finish the download
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 export type ChatMessage = {
