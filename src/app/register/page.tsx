@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Input, Label } from "@/components/ui";
 
@@ -10,7 +10,11 @@ function RegisterForm() {
   const { register, bootstrap, loginWithGoogle, user, needsBootstrap } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const oauthMode = searchParams.get("oauth") === "1" || (Boolean(user) && needsBootstrap);
+  const [submitting, setSubmitting] = useState(false);
+  // Don't flip to workspace-only UI mid-submit — that left people stuck on "Creating..."
+  const oauthMode =
+    !submitting &&
+    (searchParams.get("oauth") === "1" || (Boolean(user) && needsBootstrap));
 
   const [form, setForm] = useState({
     full_name: "",
@@ -20,29 +24,42 @@ function RegisterForm() {
     workspace_mode: "agency",
   });
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    if (user?.full_name && !form.full_name) {
+      setForm((f) => ({ ...f, full_name: user.full_name }));
+    }
+  }, [user?.full_name, form.full_name]);
+
+  async function finishAndRoute(me: { agency?: { onboarding_completed?: boolean } | null }) {
+    router.push(me.agency?.onboarding_completed ? "/dashboard" : "/onboarding");
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
     setError("");
     try {
-      let me;
       if (oauthMode) {
-        me = await bootstrap({
-          agency_name: form.agency_name,
+        if (!form.agency_name.trim()) {
+          throw new Error("Enter an agency / workspace name.");
+        }
+        const me = await bootstrap({
+          agency_name: form.agency_name.trim(),
           workspace_mode: form.workspace_mode,
-          full_name: form.full_name || undefined,
+          full_name: form.full_name.trim() || undefined,
         });
-      } else {
-        me = await register(form);
+        await finishAndRoute(me);
+        return;
       }
-      router.push(me.agency?.onboarding_completed ? "/dashboard" : "/onboarding");
+
+      const me = await register(form);
+      await finishAndRoute(me);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -56,6 +73,8 @@ function RegisterForm() {
       setGoogleLoading(false);
     }
   }
+
+  const busy = submitting || googleLoading;
 
   return (
     <div className="min-h-screen grid place-items-center px-4 py-10">
@@ -75,7 +94,7 @@ function RegisterForm() {
             <Button
               type="button"
               variant="ghost"
-              disabled={googleLoading || loading}
+              disabled={busy}
               className="w-full"
               onClick={() => void onGoogle()}
             >
@@ -97,6 +116,7 @@ function RegisterForm() {
                   value={form.full_name}
                   onChange={(e) => setForm({ ...form, full_name: e.target.value })}
                   required
+                  disabled={busy}
                 />
               </div>
               <div>
@@ -106,6 +126,7 @@ function RegisterForm() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   required
+                  disabled={busy}
                 />
               </div>
               <div>
@@ -116,6 +137,7 @@ function RegisterForm() {
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   minLength={8}
                   required
+                  disabled={busy}
                 />
               </div>
             </>
@@ -126,6 +148,7 @@ function RegisterForm() {
                 value={form.full_name}
                 onChange={(e) => setForm({ ...form, full_name: e.target.value })}
                 placeholder="Shown on reports and invites"
+                disabled={busy}
               />
             </div>
           )}
@@ -135,26 +158,31 @@ function RegisterForm() {
               value={form.agency_name}
               onChange={(e) => setForm({ ...form, agency_name: e.target.value })}
               required
+              disabled={busy}
             />
           </div>
           <div>
             <Label>Workspace mode</Label>
             <select
-              className="w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm"
+              className="w-full rounded-xl border border-[var(--line)] bg-white px-3 py-2.5 text-sm disabled:opacity-60"
               value={form.workspace_mode}
               onChange={(e) => setForm({ ...form, workspace_mode: e.target.value })}
+              disabled={busy}
             >
               <option value="agency">Agency (multi-client)</option>
               <option value="creator">Individual client</option>
             </select>
           </div>
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
-          <Button type="submit" disabled={loading || googleLoading} className="w-full">
-            {loading ? "Creating..." : oauthMode ? "Create workspace" : "Create workspace"}
+          <Button type="submit" disabled={busy} className="w-full">
+            {submitting ? "Creating..." : "Create workspace"}
           </Button>
         </form>
         <p className="mt-4 text-sm text-[var(--muted)]">
-          Already have an account? <Link href="/login" className="text-[var(--accent)]">Sign in</Link>
+          Already have an account?{" "}
+          <Link href="/login" className="text-[var(--accent)]">
+            Sign in
+          </Link>
         </p>
       </Card>
     </div>

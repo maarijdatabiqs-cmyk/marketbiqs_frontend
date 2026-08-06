@@ -44,10 +44,11 @@ function apiBase() {
 
 export async function api<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
-  const headers = new Headers(options.headers || {});
-  if (!headers.has("Content-Type") && options.body) {
+  const { timeoutMs = 45_000, ...fetchOptions } = options;
+  const headers = new Headers(fetchOptions.headers || {});
+  if (!headers.has("Content-Type") && fetchOptions.body) {
     headers.set("Content-Type", "application/json");
   }
   const token = getToken();
@@ -55,17 +56,36 @@ export async function api<T>(
   const agencyId = getAgencyId();
   if (agencyId) headers.set("X-Agency-Id", agencyId);
 
+  const controller = new AbortController();
+  const externalSignal = fetchOptions.signal;
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}${path}`, { ...options, headers });
+    res = await fetch(`${apiBase()}${path}`, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Network error";
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out. Check that the API is up, then try again.");
+    }
     if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
       throw new Error(
         "Could not reach the API (timeout or network). Try again — long AI/Jira jobs sometimes hit the host limit.",
       );
     }
     throw err instanceof Error ? err : new Error(msg);
+  } finally {
+    clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
   if (!res.ok) {
     let detail = "Request failed";

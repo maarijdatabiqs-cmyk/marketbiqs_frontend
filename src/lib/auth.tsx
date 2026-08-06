@@ -174,7 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async (): Promise<MeResponse | null> => {
     try {
-      const data = await api<MeResponse>("/api/auth/me");
+      const data = await api<MeResponse>("/api/auth/me", { timeoutMs: 30_000 });
       return applyMe(data);
     } catch {
       applyMe(null);
@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applyMe]);
 
   const syncSession = useCallback(
-    async (session: Session | null) => {
+    async (session: Session | null, opts?: { requireMe?: boolean }) => {
       if (!session?.access_token) {
         clearSession();
         applyMe(null);
@@ -194,7 +194,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setSession(session.access_token, localStorage.getItem("biqs_agency_id"));
       setLoading(true);
-      return refresh();
+      const me = await refresh();
+      if (opts?.requireMe && !me) {
+        throw new Error(
+          "Could not verify your session with the API. Frontend and backend must use the same Supabase project.",
+        );
+      }
+      return me;
     },
     [applyMe, refresh],
   );
@@ -228,7 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const sb = requireSupabase();
       const { data, error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw new Error(authErrorMessage(error, "Sign in failed"));
-      const me = await syncSession(data.session);
+      const me = await syncSession(data.session, { requireMe: true });
       if (!me) throw new Error("Signed in, but could not load your workspace.");
       return me;
     },
@@ -237,16 +243,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const bootstrap = useCallback(
     async (payload: { agency_name: string; workspace_mode?: string; full_name?: string }) => {
-      const data = await api<MeResponse & { created?: boolean }>("/api/auth/bootstrap", {
-        method: "POST",
-        body: JSON.stringify({
-          agency_name: payload.agency_name,
-          workspace_mode: payload.workspace_mode || "agency",
-          full_name: payload.full_name,
-        }),
-      });
-      applyMe(data);
-      return data;
+      try {
+        const data = await api<MeResponse & { created?: boolean }>("/api/auth/bootstrap", {
+          method: "POST",
+          timeoutMs: 30_000,
+          body: JSON.stringify({
+            agency_name: payload.agency_name,
+            workspace_mode: payload.workspace_mode || "agency",
+            full_name: payload.full_name,
+          }),
+        });
+        applyMe(data);
+        return data;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not create workspace";
+        if (/not authenticated|invalid token|unauthorized/i.test(msg)) {
+          throw new Error(
+            "Your login session was rejected by the API. Confirm frontend and backend use the same Supabase project, then sign in again.",
+          );
+        }
+        throw err instanceof Error ? err : new Error(msg);
+      }
     },
     [applyMe],
   );
@@ -260,11 +277,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       workspace_mode?: string;
     }) => {
       const sb = requireSupabase();
+      if (!payload.agency_name.trim()) {
+        throw new Error("Enter an agency / workspace name.");
+      }
       const { data, error } = await sb.auth.signUp({
-        email: payload.email,
+        email: payload.email.trim(),
         password: payload.password,
         options: {
-          data: { full_name: payload.full_name },
+          data: { full_name: payload.full_name.trim() },
           emailRedirectTo: `${siteUrl()}/auth/callback`,
         },
       });
@@ -274,11 +294,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           "Check your email to confirm your account, then sign in to finish creating your workspace.",
         );
       }
-      await syncSession(data.session);
+      setSession(data.session.access_token, null);
+      await syncSession(data.session, { requireMe: true });
       return bootstrap({
-        agency_name: payload.agency_name,
+        agency_name: payload.agency_name.trim(),
         workspace_mode: payload.workspace_mode,
-        full_name: payload.full_name,
+        full_name: payload.full_name.trim(),
       });
     },
     [bootstrap, syncSession],
