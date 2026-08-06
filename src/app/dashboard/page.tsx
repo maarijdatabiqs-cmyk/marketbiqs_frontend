@@ -19,7 +19,7 @@ import { AppShell } from "@/components/AppShell";
 import { RivalPulseBar } from "@/components/Charts";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, Input, PageHeader } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, runClientAutoIntel } from "@/lib/api";
 
 type PortfolioRow = {
   id: string;
@@ -80,9 +80,9 @@ const GUIDE_STEPS = [
     href: "/clients",
   },
   {
-    title: "2. Run intel",
-    body: "Open a client and click Run intel now. You’ll get competitors, feature gaps, alerts, and a report.",
-    href: "/tracker",
+    title: "2. Check competitors",
+    body: "Open Clients and click Check competitors on a brand. You’ll get competitors, missing features, warnings, and a report.",
+    href: "/clients",
   },
   {
     title: "3. Review this overview",
@@ -221,7 +221,7 @@ function nextActionFor(c: PortfolioRow & { health: Health; uniqueFeatures: numbe
   if ((c.gaps ?? 0) > 0) {
     return {
       label: `See ${c.gaps} missing feature${c.gaps === 1 ? "" : "s"}`,
-      href: `/clients/${c.id}?tab=gaps`,
+      href: `/clients/${c.id}?tab=competitors`,
     };
   }
   if ((c.reports ?? 0) > 0) {
@@ -652,7 +652,7 @@ export default function DashboardPage() {
             <p className="mt-2 text-sm text-[var(--muted)]">Nothing missing right now.</p>
           )}
           <Link
-            href={`/clients/${clientId}?tab=gaps`}
+            href={`/clients/${clientId}?tab=competitors`}
             className="mt-2 inline-block text-xs font-medium text-[var(--accent)] hover:underline"
           >
             See gaps →
@@ -792,10 +792,7 @@ export default function DashboardPage() {
   );
 
   const bulkTargets = useMemo(
-    () =>
-      needsAttention
-        .filter((c) => c.is_active && (c.lastScannedLabel === "Not checked yet" || c.isStale || c.health === "Needs attention"))
-        .slice(0, BULK_INTEL_LIMIT),
+    () => needsAttention.filter((c) => c.is_active).slice(0, BULK_INTEL_LIMIT),
     [needsAttention],
   );
 
@@ -847,7 +844,7 @@ export default function DashboardPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      const res = await api<any>(`/api/clients/${clientId}/auto-run`, { method: "POST" });
+      const res = await runClientAutoIntel(clientId);
       const summary = `Done for ${name} · ${res.enrich?.features || 0} features · ${res.pack?.competitors || 0} competitors`;
       if (!opts?.quiet) setMessage(summary);
       setIntelSuccess(summary);
@@ -1068,8 +1065,8 @@ export default function DashboardPage() {
                 <Link href="/clients">
                   <Button>Add a client</Button>
                 </Link>
-                <Link href="/tracker">
-                  <Button variant="ghost">Open tracker</Button>
+                <Link href="/clients">
+                  <Button variant="ghost">Back to clients</Button>
                 </Link>
               </div>
             </Card>
@@ -1142,7 +1139,7 @@ export default function DashboardPage() {
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <Link
-                              href={`/clients/${c.id}?tab=compare`}
+                              href={`/clients/${c.id}?tab=competitors`}
                               className="font-medium hover:text-[var(--accent)]"
                             >
                               {c.name}

@@ -15,7 +15,6 @@ import {
   Menu,
   Palette,
   Plug,
-  Radar,
   Send,
   Users,
   Workflow,
@@ -29,8 +28,7 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ size?:
 const workNav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/clients", label: "Clients", icon: Building2 },
-  { href: "/tracker", label: "Tracker", icon: Radar },
-  { href: "/reports", label: "Reports", icon: FileText },
+  { href: "/reports", label: "All reports", icon: FileText },
   { href: "/delivery", label: "Delivery", icon: Send },
   { href: "/biqs", label: "Biqs", icon: KanbanSquare },
   { href: "/assistant", label: "Assistant", icon: Bot },
@@ -139,14 +137,19 @@ function SidebarContent({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { agency, user, logout, loading } = useAuth();
+  const { agency, user, logout, loading, needsBootstrap } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && (!user || !agency)) {
+    if (loading) return;
+    if (user && needsBootstrap) {
+      router.replace("/register?oauth=1");
+      return;
+    }
+    if (!user || !agency) {
       router.replace("/login");
     }
-  }, [loading, user, agency, router]);
+  }, [loading, user, agency, needsBootstrap, router]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -175,9 +178,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   function handleLogout() {
-    logout();
-    setMenuOpen(false);
-    router.push("/login");
+    void logout().then(() => {
+      setMenuOpen(false);
+      router.push("/login");
+    });
   }
 
   return (

@@ -7,15 +7,19 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui";
 
 export default function HomePage() {
-  const { user, agency, loading } = useAuth();
+  const { user, agency, loading, needsBootstrap } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (loading) return;
+    if (user && needsBootstrap) {
+      router.replace("/register?oauth=1");
+      return;
+    }
     if (user && agency) {
       router.replace(agency.onboarding_completed ? "/dashboard" : "/onboarding");
     }
-  }, [user, agency, loading, router]);
+  }, [user, agency, loading, needsBootstrap, router]);
 
   return (
     <div className="min-h-screen relative overflow-hidden">

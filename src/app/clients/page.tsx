@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { Radar } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, Input, Label, PageHeader } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, runClientIntel } from "@/lib/api";
 
 type Client = {
   id: string;
@@ -26,7 +27,9 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [form, setForm] = useState({
     name: "",
     industry: "",
@@ -52,6 +55,7 @@ export default function ClientsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setMessage("");
     setBusy(true);
     setIntelName(form.name);
     setIntelSuccess("");
@@ -86,6 +90,40 @@ export default function ClientsPage() {
     }
   }
 
+  async function runIntel(clientId: string, name: string) {
+    setBusyId(clientId);
+    setIntelName(name);
+    setError("");
+    setMessage("");
+    setIntelSuccess("");
+    setIntelError("");
+    setIntelPhase("running");
+    setIntelOpen(true);
+    try {
+      const job = await runClientIntel(clientId, {
+        competitor_scope: "global",
+        competitor_country: "United States",
+        competitor_count: 5,
+      });
+      const pack = job.result_meta?.pack;
+      const enrich = job.result_meta?.enrich;
+      const summary = `Intel complete for ${name} · features ${enrich?.features || 0} · rivals ${pack?.competitors || 0}`;
+      setMessage(summary);
+      setIntelSuccess(summary);
+      setIntelPhase("success");
+      await load();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Intel run failed";
+      setError(detail);
+      setIntelError(detail);
+      setIntelPhase("error");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  const isBusy = busy || !!busyId;
+
   return (
     <AppShell>
       <IntelProgressOverlay
@@ -101,11 +139,12 @@ export default function ClientsPage() {
         onDismiss={() => setIntelOpen(false)}
       />
       <PageHeader
-        title="Client portfolio"
-        subtitle="One stacked workspace per brand. Add a client, auto-scan rivals, then run the weekly love → tickets → PDF loop."
+        title="Clients"
+        subtitle="Add a brand, open its workspace, or check competitors from here — no separate tracker needed."
         actions={<Button onClick={() => setOpen((v) => !v)}>{open ? "Close form" : "Add client"}</Button>}
       />
       {error ? <p className="mb-4 text-red-600">{error}</p> : null}
+      {message ? <p className="mb-4 text-[var(--accent)]">{message}</p> : null}
 
       {open ? (
         <Card className="mb-6">
@@ -137,10 +176,10 @@ export default function ClientsPage() {
               />
             </div>
             <p className="text-sm text-[var(--muted)]">
-              Saving triggers AI profiling and high-risk rival tracking. Tickets wait until you love a feature.
+              Saving starts rival tracking. You can also check competitors again anytime from the list below.
             </p>
-            <Button type="submit" disabled={busy}>
-              {busy ? "Working…" : "Create & run intel"}
+            <Button type="submit" disabled={isBusy}>
+              {busy ? "Working…" : "Create & check competitors"}
             </Button>
           </form>
         </Card>
@@ -150,16 +189,20 @@ export default function ClientsPage() {
         <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4">
           <div>
             <div className="font-semibold">{clients.length} clients</div>
-            <div className="mt-0.5 text-xs text-[var(--muted)]">Click a row to open the weekly intelligence loop</div>
+            <div className="mt-0.5 text-xs text-[var(--muted)]">
+              Open a client for full details, or check competitors without leaving this page
+            </div>
           </div>
         </div>
         <div className="divide-y divide-[var(--line)]">
           {clients.map((c) => (
-            <Link key={c.id} href={`/clients/${c.id}`} className="block px-5 py-4 transition hover:bg-black/[0.02]">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate font-semibold">{c.name}</h2>
+            <div key={c.id} className="px-5 py-4 transition hover:bg-black/[0.02]">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href={`/clients/${c.id}`} className="truncate font-semibold hover:text-[var(--accent)]">
+                      {c.name}
+                    </Link>
                     <span
                       className={`text-[10px] uppercase tracking-wide ${
                         c.is_active ? "text-[var(--accent)]" : "text-red-500"
@@ -171,26 +214,44 @@ export default function ClientsPage() {
                   <p className="mt-1 truncate text-sm text-[var(--muted)]">
                     {c.industry || "Industry TBD"} · {c.website || "No website"} · delivery {c.delivery_channel}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-4 text-sm text-[var(--muted)]">
+                    <span>
+                      <strong className="text-[var(--ink)]">{c.rivals_count ?? 0}</strong> competitors
+                    </span>
+                    <span>
+                      <strong className="text-[var(--ink)]">{c.features_count ?? 0}</strong> features
+                    </span>
+                    <span>
+                      <strong className="text-[var(--ink)]">{c.alerts_open ?? 0}</strong> warnings
+                    </span>
+                    <span>
+                      <strong className="text-[var(--ink)]">{c.reports_count ?? 0}</strong> reports
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-4 text-sm text-[var(--muted)]">
-                  <span>
-                    <strong className="text-[var(--ink)]">{c.rivals_count ?? 0}</strong> rivals
-                  </span>
-                  <span>
-                    <strong className="text-[var(--ink)]">{c.features_count ?? 0}</strong> features
-                  </span>
-                  <span>
-                    <strong className="text-[var(--ink)]">{c.alerts_open ?? 0}</strong> open alerts
-                  </span>
-                  <span>
-                    <strong className="text-[var(--ink)]">{c.tickets_count ?? 0}</strong> tickets
-                  </span>
-                  <span>
-                    <strong className="text-[var(--ink)]">{c.reports_count ?? 0}</strong> reports
-                  </span>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <Link href={`/clients/${c.id}`}>
+                    <Button variant="ghost" className="!px-3 !py-2 text-sm">
+                      Open
+                    </Button>
+                  </Link>
+                  <Button
+                    className="!px-3 !py-2 text-sm"
+                    onClick={() => runIntel(c.id, c.name)}
+                    disabled={isBusy}
+                    title="Check competitors"
+                  >
+                    {busyId === c.id ? (
+                      "Working…"
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Radar size={14} /> Check competitors
+                      </span>
+                    )}
+                  </Button>
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
           {!clients.length ? (
             <div className="px-5 py-10 text-sm text-[var(--muted)]">No clients yet. Add your first brand above.</div>

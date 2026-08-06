@@ -1,7 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { api, clearSession, setSession } from "@/lib/api";
+import { getSupabaseBrowser, isSupabaseConfigured } from "@/lib/supabase";
 
 type User = { id: string; email: string; full_name: string };
 type Agency = {
@@ -26,21 +28,35 @@ type Agency = {
   byok_discount_percent: number;
 };
 
+type MeResponse = {
+  user: User;
+  agency: Agency | null;
+  role: string | null;
+  needs_bootstrap?: boolean;
+};
+
 type AuthState = {
   user: User | null;
   agency: Agency | null;
   role: string | null;
+  needsBootstrap: boolean;
   loading: boolean;
-  refresh: () => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  refresh: () => Promise<MeResponse | null>;
+  login: (email: string, password: string) => Promise<MeResponse>;
   register: (payload: {
     email: string;
     password: string;
     full_name: string;
     agency_name: string;
     workspace_mode?: string;
-  }) => Promise<void>;
-  logout: () => void;
+  }) => Promise<MeResponse>;
+  bootstrap: (payload: {
+    agency_name: string;
+    workspace_mode?: string;
+    full_name?: string;
+  }) => Promise<MeResponse>;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -48,6 +64,21 @@ const AuthContext = createContext<AuthState | null>(null);
 const DEFAULT_ACCENT = "#0f766e";
 const DEFAULT_SECONDARY = "#134e4a";
 const DEFAULT_SOFT = "#d7efe9";
+
+function siteUrl() {
+  if (typeof window !== "undefined") {
+    return (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin).replace(/\/$/, "");
+  }
+  return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+}
+
+function requireSupabase() {
+  const sb = getSupabaseBrowser();
+  if (!sb || !isSupabaseConfigured) {
+    throw new Error("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+  }
+  return sb;
+}
 
 function normalizeHex(color: string | null | undefined, fallback: string): string {
   if (!color) return fallback;
@@ -84,50 +115,131 @@ function applyAgencyTheme(agency: Agency | null) {
   root.style.setProperty("--brand-secondary", secondary);
 }
 
+function authErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) {
+    const msg = err.message;
+    if (/email not confirmed/i.test(msg)) {
+      return "Check your email to confirm your account, then sign in.";
+    }
+    if (/invalid login credentials/i.test(msg)) {
+      return "Wrong email or password.";
+    }
+    if (/user already registered/i.test(msg)) {
+      return "That email is already registered. Sign in instead.";
+    }
+    return msg;
+  }
+  return fallback;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [agency, setAgency] = useState<Agency | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     applyAgencyTheme(agency);
   }, [agency]);
 
-  const refresh = useCallback(async () => {
-    try {
-      const data = await api<{ user: User; agency: Agency; role: string }>("/api/auth/me");
-      setUser(data.user);
-      setAgency(data.agency);
-      setRole(data.role);
-      setSession(localStorage.getItem("biqs_token") || "", data.agency.id);
-    } catch {
+  const applyMe = useCallback((data: MeResponse | null) => {
+    if (!data) {
       setUser(null);
       setAgency(null);
       setRole(null);
+      setNeedsBootstrap(false);
+      return null;
+    }
+    setUser(data.user);
+    setAgency(data.agency);
+    setRole(data.role);
+    setNeedsBootstrap(Boolean(data.needs_bootstrap || !data.agency));
+    if (data.agency?.id) {
+      const token = localStorage.getItem("biqs_token") || "";
+      setSession(token, data.agency.id);
+    }
+    return data;
+  }, []);
+
+  const refresh = useCallback(async (): Promise<MeResponse | null> => {
+    try {
+      const data = await api<MeResponse>("/api/auth/me");
+      return applyMe(data);
+    } catch {
+      applyMe(null);
+      return null;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyMe]);
+
+  const syncSession = useCallback(
+    async (session: Session | null) => {
+      if (!session?.access_token) {
+        clearSession();
+        applyMe(null);
+        setLoading(false);
+        return null;
+      }
+      setSession(session.access_token, localStorage.getItem("biqs_agency_id"));
+      setLoading(true);
+      return refresh();
+    },
+    [applyMe, refresh],
+  );
 
   useEffect(() => {
-    const token = localStorage.getItem("biqs_token");
-    if (!token) {
+    let cancelled = false;
+    const sb = getSupabaseBrowser();
+    if (!sb) {
       setLoading(false);
       return;
     }
-    void refresh();
-  }, [refresh]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const data = await api<{ access_token: string; agency_id?: string | null }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
+    void (async () => {
+      const { data } = await sb.auth.getSession();
+      if (cancelled) return;
+      await syncSession(data.session);
+    })();
+
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+      void syncSession(session);
     });
-    setSession(data.access_token, data.agency_id || null);
-    setLoading(true);
-    await refresh();
-  }, [refresh]);
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, [syncSession]);
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const sb = requireSupabase();
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(authErrorMessage(error, "Sign in failed"));
+      const me = await syncSession(data.session);
+      if (!me) throw new Error("Signed in, but could not load your workspace.");
+      return me;
+    },
+    [syncSession],
+  );
+
+  const bootstrap = useCallback(
+    async (payload: { agency_name: string; workspace_mode?: string; full_name?: string }) => {
+      const data = await api<MeResponse & { created?: boolean }>("/api/auth/bootstrap", {
+        method: "POST",
+        body: JSON.stringify({
+          agency_name: payload.agency_name,
+          workspace_mode: payload.workspace_mode || "agency",
+          full_name: payload.full_name,
+        }),
+      });
+      applyMe(data);
+      return data;
+    },
+    [applyMe],
+  );
 
   const register = useCallback(
     async (payload: {
@@ -137,28 +249,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       agency_name: string;
       workspace_mode?: string;
     }) => {
-      const data = await api<{ access_token: string; agency_id?: string | null }>("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify(payload),
+      const sb = requireSupabase();
+      const { data, error } = await sb.auth.signUp({
+        email: payload.email,
+        password: payload.password,
+        options: {
+          data: { full_name: payload.full_name },
+          emailRedirectTo: `${siteUrl()}/auth/callback`,
+        },
       });
-      setSession(data.access_token, data.agency_id || null);
-      setLoading(true);
-      await refresh();
+      if (error) throw new Error(authErrorMessage(error, "Registration failed"));
+      if (!data.session) {
+        throw new Error(
+          "Check your email to confirm your account, then sign in to finish creating your workspace.",
+        );
+      }
+      await syncSession(data.session);
+      return bootstrap({
+        agency_name: payload.agency_name,
+        workspace_mode: payload.workspace_mode,
+        full_name: payload.full_name,
+      });
     },
-    [refresh],
+    [bootstrap, syncSession],
   );
 
-  const logout = useCallback(() => {
+  const loginWithGoogle = useCallback(async () => {
+    const sb = requireSupabase();
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${siteUrl()}/auth/callback`,
+      },
+    });
+    if (error) throw new Error(authErrorMessage(error, "Google sign-in failed"));
+  }, []);
+
+  const logout = useCallback(async () => {
+    const sb = getSupabaseBrowser();
     clearSession();
     setUser(null);
     setAgency(null);
     setRole(null);
+    setNeedsBootstrap(false);
     applyAgencyTheme(null);
+    if (sb) {
+      await sb.auth.signOut();
+    }
   }, []);
 
   const value = useMemo(
-    () => ({ user, agency, role, loading, refresh, login, register, logout }),
-    [user, agency, role, loading, refresh, login, register, logout],
+    () => ({
+      user,
+      agency,
+      role,
+      needsBootstrap,
+      loading,
+      refresh,
+      login,
+      register,
+      bootstrap,
+      loginWithGoogle,
+      logout,
+    }),
+    [
+      user,
+      agency,
+      role,
+      needsBootstrap,
+      loading,
+      refresh,
+      login,
+      register,
+      bootstrap,
+      loginWithGoogle,
+      logout,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

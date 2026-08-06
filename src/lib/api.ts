@@ -1,6 +1,7 @@
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://marketbiqsbackend-production.up.railway.app"
+  process.env.BACKEND_URL ||
+  "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
 
 export type ApiError = { detail?: string | { msg: string }[] };
@@ -130,6 +131,19 @@ export async function runClientIntel(
 export function pdfUrl(reportId: string) {
   const token = getToken();
   return `${apiBase()}/api/reports/${reportId}/pdf?token=${token || ""}`;
+}
+
+/** One-click intel run. Always send an explicit scope+country so prod never hard-fails. */
+export async function runClientAutoIntel(clientId: string) {
+  return api<any>(`/api/clients/${clientId}/auto-run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      competitor_scope: "global",
+      competitor_country: "United States",
+      competitor_count: 5,
+    }),
+  });
 }
 
 export async function downloadReportPdf(reportId: string, filename: string) {
