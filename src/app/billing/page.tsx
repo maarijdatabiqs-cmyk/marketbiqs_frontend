@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { Button, Card, PageHeader, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
 
-export default function BillingPage() {
+function BillingInner() {
+  const search = useSearchParams();
   const [budget, setBudget] = useState<any>(null);
   const [packs, setPacks] = useState(1);
   const [message, setMessage] = useState("");
@@ -18,6 +20,15 @@ export default function BillingPage() {
   useEffect(() => {
     load().catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    if (search.get("success") === "1" || search.get("success") === "true") {
+      setMessage("Payment received — your packs and quotas are updated.");
+      load().catch(() => undefined);
+    } else if (search.get("canceled") === "1" || search.get("canceled") === "true") {
+      setMessage("Checkout canceled — no charges were made.");
+    }
+  }, [search]);
 
   async function checkout() {
     setError("");
@@ -39,11 +50,7 @@ export default function BillingPage() {
   }
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Agency billing"
-        subtitle="Transparent monthly Agency plan with per-client add-on packs and usage-aware quotas."
-      />
+    <>
       {error ? <p className="text-red-600 mb-4">{error}</p> : null}
       {message ? <p className="text-[var(--accent)] mb-4">{message}</p> : null}
       {budget ? (
@@ -58,7 +65,8 @@ export default function BillingPage() {
             <Card>
               <h2 className="font-semibold">Base Agency · $450/mo</h2>
               <p className="text-sm text-[var(--muted)] mt-2">
-                Includes {budget.included_clients} clients. Status: {budget.billing_status}. BYOK discount: {budget.byok_discount_percent}%.
+                Includes {budget.included_clients} clients. Status: {budget.billing_status}. BYOK discount:{" "}
+                {budget.byok_discount_percent}%.
               </p>
               <div className="mt-4 text-sm">
                 Scrape units: {budget.scrape_units_used}/{budget.scrape_quota}
@@ -82,10 +90,12 @@ export default function BillingPage() {
                 </Button>
               </div>
               <p className="text-xs text-[var(--muted)] mt-3">
-                Current packs: {budget.client_pack_count} · meters: reports {budget.reports_used}/{budget.reports_quota}, scrapes {budget.scrape_units_used}/{budget.scrape_quota}
+                Current packs: {budget.client_pack_count} · meters: reports {budget.reports_used}/
+                {budget.reports_quota}, scrapes {budget.scrape_units_used}/{budget.scrape_quota}
               </p>
               <p className="text-xs text-[var(--muted)] mt-2">
-                Set STRIPE_SECRET_KEY + price IDs for live Agency + pack checkout; otherwise packs apply locally in development.
+                Set STRIPE_SECRET_KEY + price IDs for live Agency + pack checkout; otherwise packs apply locally in
+                development.
               </p>
             </Card>
           </div>
@@ -93,6 +103,20 @@ export default function BillingPage() {
       ) : (
         <div className="text-[var(--muted)]">Loading billing...</div>
       )}
+    </>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <AppShell>
+      <PageHeader
+        title="Agency billing"
+        subtitle="Transparent monthly Agency plan with per-client add-on packs and usage-aware quotas."
+      />
+      <Suspense fallback={<div className="text-[var(--muted)]">Loading billing...</div>}>
+        <BillingInner />
+      </Suspense>
     </AppShell>
   );
 }

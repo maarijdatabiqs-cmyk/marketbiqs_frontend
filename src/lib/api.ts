@@ -120,30 +120,34 @@ export async function runClientIntel(
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     const job = await api<IntelJob>(`/api/clients/${clientId}/jobs/${started.job_id}`);
-    if (job.status === "completed") return job;
-    if (job.status === "failed") {
+    const status = String(job.status || "").toLowerCase();
+    if (status === "completed") return job;
+    if (status === "failed") {
       throw new Error(job.detail || "Intel run failed");
     }
   }
   throw new Error("Intel is still running after 5 minutes. Refresh and check Radar → jobs.");
 }
 
+/** @deprecated Prefer downloadReportPdf — query-token PDF auth is not supported. */
 export function pdfUrl(reportId: string) {
-  const token = getToken();
-  return `${apiBase()}/api/reports/${reportId}/pdf?token=${token || ""}`;
+  return `${apiBase()}/api/reports/${reportId}/pdf`;
 }
 
-/** One-click intel run. Always send an explicit scope+country so prod never hard-fails. */
+/** One-click intel run (dashboard / quick actions). Polls until the background job finishes. */
 export async function runClientAutoIntel(clientId: string) {
-  return api<any>(`/api/clients/${clientId}/auto-run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      competitor_scope: "global",
-      competitor_country: "United States",
-      competitor_count: 5,
-    }),
+  const job = await runClientIntel(clientId, {
+    competitor_scope: "global",
+    competitor_country: "United States",
+    competitor_count: 5,
   });
+  const meta = job.result_meta || {};
+  return {
+    ...meta,
+    enrich: meta.enrich || {},
+    pack: meta.pack || {},
+    job,
+  };
 }
 
 export async function downloadReportPdf(reportId: string, filename: string) {

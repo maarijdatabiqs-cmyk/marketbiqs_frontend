@@ -28,16 +28,17 @@ function RegisterForm() {
     setLoading(true);
     setError("");
     try {
+      let me;
       if (oauthMode) {
-        await bootstrap({
+        me = await bootstrap({
           agency_name: form.agency_name,
           workspace_mode: form.workspace_mode,
           full_name: form.full_name || undefined,
         });
       } else {
-        await register(form);
+        me = await register(form);
       }
-      router.push("/onboarding");
+      router.push(me.agency?.onboarding_completed ? "/dashboard" : "/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

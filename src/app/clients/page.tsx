@@ -63,7 +63,7 @@ export default function ClientsPage() {
     setIntelPhase("running");
     setIntelOpen(true);
     try {
-      await api("/api/clients", {
+      const created = await api<Client>("/api/clients", {
         method: "POST",
         body: JSON.stringify({
           name: form.name,
@@ -75,7 +75,16 @@ export default function ClientsPage() {
             .filter(Boolean),
         }),
       });
-      setIntelSuccess(`“${form.name}” is set up — rivals and features are being tracked.`);
+      const job = await runClientIntel(created.id, {
+        competitor_scope: "global",
+        competitor_country: "United States",
+        competitor_count: 5,
+      });
+      const pack = job.result_meta?.pack;
+      const enrich = job.result_meta?.enrich;
+      const summary = `“${created.name}” ready · ${enrich?.features || 0} features · ${pack?.competitors || 0} rivals`;
+      setMessage(summary);
+      setIntelSuccess(summary);
       setIntelPhase("success");
       setForm({ name: "", industry: "", website: "", delivery_emails: "" });
       setOpen(false);
@@ -85,6 +94,7 @@ export default function ClientsPage() {
       setError(detail);
       setIntelError(detail);
       setIntelPhase("error");
+      await load().catch(() => undefined);
     } finally {
       setBusy(false);
     }

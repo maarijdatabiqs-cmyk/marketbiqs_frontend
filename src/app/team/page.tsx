@@ -8,10 +8,11 @@ import { api } from "@/lib/api";
 export default function TeamPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     email: "",
     full_name: "",
-    password: "",
     role: "analyst",
   });
 
@@ -26,12 +27,17 @@ export default function TeamPage() {
   async function onInvite(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setMessage("");
+    setBusy(true);
     try {
       await api("/api/agency/members", { method: "POST", body: JSON.stringify(form) });
-      setForm({ email: "", full_name: "", password: "", role: "analyst" });
+      setForm({ email: "", full_name: "", role: "analyst" });
+      setMessage("Invite sent. They’ll get a Supabase email to join, then sign in on MarketBiqs.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invite failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -42,6 +48,7 @@ export default function TeamPage() {
         subtitle="Invite account managers, strategists, and analysts into the same agency workspace."
       />
       {error ? <p className="text-red-600 mb-4">{error}</p> : null}
+      {message ? <p className="text-[var(--accent)] mb-4">{message}</p> : null}
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
           <h2 className="font-semibold mb-4">Invite teammate</h2>
@@ -51,12 +58,8 @@ export default function TeamPage() {
               <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
             </div>
             <div>
-              <Label>Email</Label>
+              <Label>Work email</Label>
               <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-            </div>
-            <div>
-              <Label>Temporary password</Label>
-              <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={8} required />
             </div>
             <div>
               <Label>Role</Label>
@@ -71,7 +74,12 @@ export default function TeamPage() {
                 <option value="viewer">Viewer</option>
               </select>
             </div>
-            <Button type="submit">Add member</Button>
+            <p className="text-xs text-[var(--muted)]">
+              They receive an invite email from Supabase Auth. After accepting, they sign in with that email — no temporary password.
+            </p>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Sending invite…" : "Send invite"}
+            </Button>
           </form>
         </Card>
         <Card>
@@ -89,6 +97,7 @@ export default function TeamPage() {
                 <span className="text-xs uppercase text-[var(--accent)] shrink-0">{m.role}</span>
               </div>
             ))}
+            {!members.length ? <p className="text-sm text-[var(--muted)]">No members yet.</p> : null}
           </div>
         </Card>
       </div>

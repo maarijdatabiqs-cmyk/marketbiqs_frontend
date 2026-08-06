@@ -447,13 +447,20 @@ export default function ClientDetailPage() {
   async function pushJira() {
     if (!selectedFeatureId) return;
     setBusy("jira");
+    setError("");
+    setMessage("");
     try {
       const created = await api<any[]>(
         `/api/clients/${clientId}/features/${selectedFeatureId}/tickets/create-all`,
         { method: "POST" },
       );
       setTickets(created);
-      setMessage(`Sent ${created.filter((t) => t.jira_key).length} tasks to Jira`);
+      const pushed = created.filter((t) => t.jira_key).length;
+      if (pushed === 0) {
+        setError("No tickets were pushed. Connect Jira under Integrations, then try again.");
+      } else {
+        setMessage(`Sent ${pushed} of ${created.length} tasks to Jira`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send to Jira");
     } finally {
@@ -461,11 +468,42 @@ export default function ClientDetailPage() {
     }
   }
 
+  async function pushBiqs() {
+    if (!selectedFeatureId) return;
+    setBusy("biqs");
+    setError("");
+    setMessage("");
+    try {
+      const created = await api<any[]>(
+        `/api/clients/${clientId}/features/${selectedFeatureId}/tickets/push-biqs`,
+        { method: "POST" },
+      );
+      setMessage(
+        created.length
+          ? `Added ${created.length} tickets to the Biqs board — open Biqs to drag them across the workflow.`
+          : "These tickets are already on the Biqs board.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add tickets to Biqs");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function addFeature(e: FormEvent) {
     e.preventDefault();
-    await api(`/api/clients/${clientId}/features`, { method: "POST", body: JSON.stringify(featureForm) });
-    setFeatureForm({ name: "", category: "General", description: "" });
-    await loadAll();
+    setBusy("feature");
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}/features`, { method: "POST", body: JSON.stringify(featureForm) });
+      setFeatureForm({ name: "", category: "General", description: "" });
+      setMessage("Feature added");
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add feature");
+    } finally {
+      setBusy("");
+    }
   }
 
   async function clarifyFeatureDescriptions() {
@@ -486,13 +524,22 @@ export default function ClientDetailPage() {
 
   async function addCompetitor(e: FormEvent) {
     e.preventDefault();
-    const created = await api<any>(`/api/clients/${clientId}/competitors`, {
-      method: "POST",
-      body: JSON.stringify(compForm),
-    });
-    setCompForm({ name: "", website: "" });
-    await loadAll();
-    setSelectedCompetitorId(created.id);
+    setBusy("competitor");
+    setError("");
+    try {
+      const created = await api<any>(`/api/clients/${clientId}/competitors`, {
+        method: "POST",
+        body: JSON.stringify(compForm),
+      });
+      setCompForm({ name: "", website: "" });
+      setMessage(`Added competitor “${created.name || compForm.name}”`);
+      await loadAll();
+      setSelectedCompetitorId(created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add competitor");
+    } finally {
+      setBusy("");
+    }
   }
 
   if (!client) {
@@ -1188,8 +1235,8 @@ export default function ClientDetailPage() {
             <Card>
               <h2 className="font-semibold mb-1">Build list</h2>
               <p className="text-sm text-[var(--muted)] mb-4 leading-relaxed">
-                Ideas you saved to work on later. Pick one, create a simple step-by-step plan, and optionally send those
-                steps to Jira if it’s connected.
+                Ideas you saved to work on later. Pick one, create a simple step-by-step plan, add it to the Biqs
+                board, and optionally send those steps to Jira if it’s connected.
               </p>
               <Label>Pick an item</Label>
               <select
@@ -1207,9 +1254,17 @@ export default function ClientDetailPage() {
                 <Button onClick={() => selectedFeatureId && openPlan(selectedFeatureId)} disabled={!selectedFeatureId || !!busy}>
                   {busy === "plan" ? "Building plan…" : "Show step-by-step plan"}
                 </Button>
-                <Button onClick={pushJira} disabled={!tickets.length || !!busy}>
+                <Button onClick={pushBiqs} disabled={!tickets.length || !!busy}>
+                  {busy === "biqs" ? "Adding…" : "Add tickets to Biqs"}
+                </Button>
+                <Button variant="ghost" onClick={pushJira} disabled={!tickets.length || !!busy}>
                   {busy === "jira" ? "Sending…" : "Send steps to Jira"}
                 </Button>
+                <Link href={`/biqs?client=${clientId}`}>
+                  <Button variant="ghost" disabled={!!busy}>
+                    Open Biqs board
+                  </Button>
+                </Link>
               </div>
             </Card>
             {wishlist.map((f) => (

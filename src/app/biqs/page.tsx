@@ -42,7 +42,7 @@ const PRIORITY_STYLES: Record<string, string> = {
 };
 
 function PriorityTag({ priority }: { priority: string }) {
-  const style = PRIORITY_STYLES[priority?.toLowerCase()] || PRIORITY_STYLES.medium;
+  const style = PRIORITY_STYLES[(priority || "").toLowerCase()] || PRIORITY_STYLES.medium;
   return (
     <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${style}`}>
       {priority || "medium"}
@@ -153,8 +153,8 @@ export default function BiqsPage() {
       ) : tickets.length === 0 ? (
         <Card>
           <p className="text-sm text-[var(--muted)]">
-            No tickets on this board yet. Open the client, go to the Wishlist tab, build a development plan, then click
-            “Add tickets to Biqs”.
+            No tickets on this board yet. Open the client → Wishlist → build a plan →{" "}
+            <strong className="font-medium text-[var(--ink)]">Add tickets to Biqs</strong>.
           </p>
         </Card>
       ) : (

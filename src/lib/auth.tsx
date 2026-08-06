@@ -66,8 +66,9 @@ const DEFAULT_SECONDARY = "#134e4a";
 const DEFAULT_SOFT = "#d7efe9";
 
 function siteUrl() {
-  if (typeof window !== "undefined") {
-    return (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin).replace(/\/$/, "");
+  // Prefer the live origin so local vs Railway always match the page the user is on.
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, "");
   }
   return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
 }
@@ -124,8 +125,17 @@ function authErrorMessage(err: unknown, fallback: string): string {
     if (/invalid login credentials/i.test(msg)) {
       return "Wrong email or password.";
     }
-    if (/user already registered/i.test(msg)) {
+    if (/user already registered|already been registered/i.test(msg)) {
       return "That email is already registered. Sign in instead.";
+    }
+    if (/rate limit|over_email_send_rate_limit|over_request_rate_limit|too many requests/i.test(msg)) {
+      return "Too many signup attempts. Wait about an hour (Supabase free email limit is ~2/hour), then try once — or sign in if you already registered.";
+    }
+    if (/redirect|not allowed|whitelist|allow list|allowlist/i.test(msg)) {
+      return "Auth redirect URL is not allowed. Add this site’s /auth/callback URL in Supabase → Authentication → URL Configuration.";
+    }
+    if (/signup.?disabled|signups.?not.?allowed/i.test(msg)) {
+      return "New signups are disabled in Supabase Auth settings.";
     }
     return msg;
   }

@@ -48,8 +48,15 @@ export default function ByokPage() {
   }
 
   async function remove(p: string) {
-    await api(`/api/billing/byok/${p}`, { method: "DELETE" });
-    await load();
+    setError("");
+    setMessage("");
+    try {
+      await api(`/api/billing/byok/${p}`, { method: "DELETE" });
+      setMessage(`Removed ${p} key`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove key");
+    }
   }
 
   return (
