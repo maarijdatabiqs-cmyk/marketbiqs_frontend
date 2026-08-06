@@ -324,9 +324,16 @@ export default function ClientDetailPage() {
     setIntelOpen(true);
     try {
       const job = await runClientIntel(clientId, options);
-      const pack = job.result_meta?.pack;
-      const enrich = job.result_meta?.enrich;
-      const summary = `Competitor check done · ${enrich?.features || 0} features found · ${pack?.competitors || 0} rivals · report ready.`;
+      const pack = job.result_meta?.pack as { competitors?: number } | undefined;
+      const enrich = job.result_meta?.enrich as {
+        features?: number;
+        competitors_added?: number;
+      } | undefined;
+      const added = enrich?.competitors_added ?? 0;
+      const summary =
+        options.competitor_mode === "update"
+          ? `Competitor refresh done · ${options.competitor_count} rival${options.competitor_count === 1 ? "" : "s"} updated · report ready.`
+          : `Competitor check done · ${added || options.competitor_count} new rival${(added || options.competitor_count) === 1 ? "" : "s"} added · ${pack?.competitors || competitors.length} tracked · report ready.`;
       setMessage(summary);
       setIntelSuccess(summary);
       setIntelPhase("success");
@@ -591,6 +598,7 @@ export default function ClientDetailPage() {
       <IntelSetupDialog
         open={setupOpen}
         clientName={client?.name}
+        existingCompetitorCount={competitors.filter((c) => c.is_tracking !== false).length}
         busy={busy === "pack"}
         onCancel={() => setSetupOpen(false)}
         onConfirm={startIntelRun}

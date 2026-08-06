@@ -1,18 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Label } from "@/components/ui";
+
+export type CompetitorRunMode = "update" | "add";
 
 export type IntelSetupOptions = {
   competitor_scope: "global" | "local";
   competitor_country?: string;
   competitor_count: number;
+  /** update = refresh existing rivals; add = find this many NEW rivals and keep previous ones */
+  competitor_mode: CompetitorRunMode;
 };
 
 type IntelSetupDialogProps = {
   open: boolean;
   clientName?: string;
   defaultCountry?: string;
+  existingCompetitorCount?: number;
   busy?: boolean;
   onCancel: () => void;
   onConfirm: (options: IntelSetupOptions) => void;
@@ -35,19 +40,36 @@ export function IntelSetupDialog({
   open,
   clientName,
   defaultCountry = "",
+  existingCompetitorCount = 0,
   busy = false,
   onCancel,
   onConfirm,
 }: IntelSetupDialogProps) {
+  const hasExisting = existingCompetitorCount > 0;
   const [scope, setScope] = useState<"global" | "local">("local");
   const [country, setCountry] = useState(defaultCountry);
   const [count, setCount] = useState(5);
+  const [mode, setMode] = useState<CompetitorRunMode>(hasExisting ? "update" : "add");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setCountry(defaultCountry);
+    setMode(hasExisting ? "update" : "add");
+    setError("");
+  }, [open, defaultCountry, hasExisting]);
 
   const title = useMemo(
     () => (clientName ? `Run intel for ${clientName}` : "Run intelligence"),
     [clientName],
   );
+
+  const countLabel =
+    mode === "add"
+      ? hasExisting
+        ? `New competitors to add (kept with your ${existingCompetitorCount} existing)`
+        : "Number of competitors to find"
+      : `Existing competitors to refresh (you have ${existingCompetitorCount})`;
 
   if (!open) return null;
 
@@ -57,10 +79,15 @@ export function IntelSetupDialog({
       setError("Enter a country for local competitors.");
       return;
     }
+    if (mode === "update" && !hasExisting) {
+      setError("No competitors to update yet. Choose “Add new competitors” first.");
+      return;
+    }
     onConfirm({
       competitor_scope: scope,
       competitor_country: scope === "local" ? country.trim() : undefined,
       competitor_count: count,
+      competitor_mode: mode,
     });
   }
 
@@ -78,11 +105,46 @@ export function IntelSetupDialog({
             {title}
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Choose rival type and how many competitors to track (1–10).
+            Update rivals you already track, or add a fixed number of new ones.
           </p>
         </div>
 
         <div className="space-y-5 px-5 py-4">
+          <div>
+            <Label>What should this run do?</Label>
+            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setMode("update")}
+                disabled={!hasExisting}
+                className={`rounded-xl border px-3 py-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  mode === "update"
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--ink)]"
+                    : "border-[var(--line)] text-[var(--muted)] hover:bg-black/5"
+                }`}
+              >
+                <div className="font-medium text-[var(--ink)]">Update current</div>
+                <div className="mt-0.5 text-xs">Refresh data for rivals you already have</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("add")}
+                className={`rounded-xl border px-3 py-3 text-left text-sm transition ${
+                  mode === "add"
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--ink)]"
+                    : "border-[var(--line)] text-[var(--muted)] hover:bg-black/5"
+                }`}
+              >
+                <div className="font-medium text-[var(--ink)]">Add new</div>
+                <div className="mt-0.5 text-xs">
+                  {hasExisting
+                    ? `Find more and keep your ${existingCompetitorCount} current`
+                    : "Discover competitors from scratch"}
+                </div>
+              </button>
+            </div>
+          </div>
+
           <div>
             <Label>Competitor type</Label>
             <div className="mt-1 grid grid-cols-2 gap-2">
@@ -133,7 +195,7 @@ export function IntelSetupDialog({
 
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <Label>Number of competitors</Label>
+              <Label>{countLabel}</Label>
               <span className="text-sm font-semibold tabular-nums text-[var(--ink)]">{count}</span>
             </div>
             <input
@@ -149,6 +211,13 @@ export function IntelSetupDialog({
               <span>1</span>
               <span>10</span>
             </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              {mode === "add"
+                ? `We’ll search for exactly ${count} new competitor${count === 1 ? "" : "s"}${
+                    hasExisting ? " and keep your previous list." : "."
+                  }`
+                : `We’ll refresh up to ${count} of your current rivals (no new names added).`}
+            </p>
           </div>
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -159,7 +228,7 @@ export function IntelSetupDialog({
             Cancel
           </Button>
           <Button type="button" className="flex-1" onClick={submit} disabled={busy}>
-            {busy ? "Starting…" : "Start intel"}
+            {busy ? "Starting…" : mode === "add" ? `Add ${count} & run` : "Update & run"}
           </Button>
         </div>
       </div>

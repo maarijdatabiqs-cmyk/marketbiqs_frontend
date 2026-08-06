@@ -79,6 +79,7 @@ export default function ClientsPage() {
         competitor_scope: "global",
         competitor_country: "United States",
         competitor_count: 5,
+        competitor_mode: "add",
       });
       const pack = job.result_meta?.pack;
       const enrich = job.result_meta?.enrich;
@@ -114,6 +115,7 @@ export default function ClientsPage() {
         competitor_scope: "global",
         competitor_country: "United States",
         competitor_count: 5,
+        competitor_mode: "add",
       });
       const pack = job.result_meta?.pack;
       const enrich = job.result_meta?.enrich;

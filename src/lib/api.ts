@@ -123,6 +123,7 @@ export async function runClientIntel(
     competitor_scope: "global" | "local";
     competitor_country?: string;
     competitor_count: number;
+    competitor_mode?: "update" | "add";
   },
 ): Promise<IntelJob> {
   const started = await api<{ job_id: string; status: string }>(`/api/clients/${clientId}/auto-run`, {
@@ -131,6 +132,7 @@ export async function runClientIntel(
       competitor_scope: options.competitor_scope,
       competitor_country: options.competitor_country || null,
       competitor_count: options.competitor_count,
+      competitor_mode: options.competitor_mode || "add",
     }),
   });
   if (!started?.job_id) {
@@ -160,6 +162,7 @@ export async function runClientAutoIntel(clientId: string) {
     competitor_scope: "global",
     competitor_country: "United States",
     competitor_count: 5,
+    competitor_mode: "add",
   });
   const meta = job.result_meta || {};
   return {
