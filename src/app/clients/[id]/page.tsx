@@ -13,6 +13,14 @@ import { api, downloadReportPdf, runClientIntel } from "@/lib/api";
 
 type RadarSectionId = "trends" | "sentiment" | "snapshots" | "jobs";
 
+function externalHref(url?: string | null): string | undefined {
+  const raw = (url || "").trim();
+  if (!raw) return undefined;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("//")) return `https:${raw}`;
+  return `https://${raw}`;
+}
+
 function RadarCollapsible({
   title,
   subtitle,
@@ -330,10 +338,18 @@ export default function ClientDetailPage() {
         competitors_added?: number;
       } | undefined;
       const added = enrich?.competitors_added ?? 0;
+      // Prefer final tracked count after prune (added can be higher than what remains)
+      const tracked = pack?.competitors ?? 0;
+      const shown =
+        options.competitor_mode === "update"
+          ? options.competitor_count
+          : tracked || added || options.competitor_count;
       const summary =
         options.competitor_mode === "update"
-          ? `Competitor refresh done · ${options.competitor_count} rival${options.competitor_count === 1 ? "" : "s"} updated · report ready.`
-          : `Competitor check done · ${added || options.competitor_count} new rival${(added || options.competitor_count) === 1 ? "" : "s"} added · ${pack?.competitors || competitors.length} tracked · report ready.`;
+          ? `Competitor refresh done · ${shown} rival${shown === 1 ? "" : "s"} updated · report ready.`
+          : options.competitor_mode === "replace"
+            ? `Fresh competitor set ready · ${shown} rival${shown === 1 ? "" : "s"} tracked · report ready.`
+            : `Competitor check done · ${added || shown} new rival${(added || shown) === 1 ? "" : "s"} considered · ${tracked || shown} tracked · report ready.`;
       setMessage(summary);
       setIntelSuccess(summary);
       setIntelPhase("success");
@@ -381,6 +397,47 @@ export default function ClientDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pin update failed");
     } finally {
+      setBusy("");
+    }
+  }
+
+  async function removeCompetitor(competitorId: string, competitorName: string) {
+    const label = competitorName || "this competitor";
+    if (!window.confirm(`Remove ${label} from this client’s competitor list?`)) return;
+    setBusy(`remove-${competitorId}`);
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}/competitors/${competitorId}`, { method: "DELETE" });
+      if (selectedCompetitorId === competitorId) {
+        setSelectedCompetitorId("");
+        setCompetitorDetail(null);
+        setComparisons([]);
+      }
+      setMessage(`${label} removed`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove competitor");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function archiveClient() {
+    const label = client?.name || "this client";
+    if (
+      !window.confirm(
+        `Archive “${label}”? Tracking stops and it leaves your active list. Reports stay saved.`,
+      )
+    ) {
+      return;
+    }
+    setBusy("archive");
+    setError("");
+    try {
+      await api(`/api/clients/${clientId}`, { method: "DELETE" });
+      window.location.href = "/clients";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive client");
       setBusy("");
     }
   }
@@ -626,6 +683,14 @@ export default function ClientDetailPage() {
             <Link href={`/portal/${clientId}`}>
               <Button variant="ghost">Client chat portal</Button>
             </Link>
+            <Button
+              variant="ghost"
+              className="!border-red-200 !text-red-700 hover:!bg-red-50"
+              disabled={!!busy}
+              onClick={() => void archiveClient()}
+            >
+              {busy === "archive" ? "Archiving…" : "Archive"}
+            </Button>
             <Button onClick={runIntel} disabled={!!busy}>
               {busy === "pack" ? "Working…" : "Check competitors"}
             </Button>
@@ -970,22 +1035,39 @@ export default function ClientDetailPage() {
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {competitors.map((c) => (
-                    <button
+                    <div
                       key={c.id}
-                      type="button"
-                      onClick={() => setSelectedCompetitorId(c.id)}
-                      className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                      className={`inline-flex items-stretch rounded-xl border text-sm transition ${
                         selectedCompetitorId === c.id
                           ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--ink)] font-medium"
                           : "border-[var(--line)] text-[var(--muted)] hover:bg-black/5"
                       }`}
                     >
-                      <span className="block">{c.name}</span>
-                      <span className="mt-0.5 block text-[10px] uppercase tracking-wide opacity-80">
-                        {Math.round(c.overlap_score || 0)}% overlap
-                        {c.is_pinned ? " · pinned" : ""}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCompetitorId(c.id)}
+                        className="px-3 py-2 text-left"
+                      >
+                        <span className="block">{c.name}</span>
+                        <span className="mt-0.5 block text-[10px] uppercase tracking-wide opacity-80">
+                          {Math.round(c.overlap_score || 0)}% overlap
+                          {c.is_pinned ? " · pinned" : ""}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${c.name}`}
+                        title="Remove competitor"
+                        disabled={!!busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void removeCompetitor(c.id, c.name);
+                        }}
+                        className="border-l border-[var(--line)] px-2 text-base leading-none text-[var(--muted)] hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
                 {selectedCompetitor ? (
@@ -993,10 +1075,10 @@ export default function ClientDetailPage() {
                     <span>
                       Selected: <strong className="text-[var(--ink)]">{selectedCompetitor.name}</strong>
                     </span>
-                    {selectedCompetitor.website ? (
+                    {externalHref(selectedCompetitor.website) ? (
                       <a
                         className="text-[var(--accent)]"
-                        href={selectedCompetitor.website}
+                        href={externalHref(selectedCompetitor.website)}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -1014,6 +1096,14 @@ export default function ClientDetailPage() {
                         : selectedCompetitor.is_pinned
                           ? "Unpin"
                           : "Pin"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="!px-2 !py-1 text-xs !border-red-200 !text-red-700 hover:!bg-red-50"
+                      disabled={!!busy}
+                      onClick={() => void removeCompetitor(selectedCompetitor.id, selectedCompetitor.name)}
+                    >
+                      {busy === `remove-${selectedCompetitor.id}` ? "Removing…" : "Remove"}
                     </Button>
                   </div>
                 ) : null}
@@ -1116,10 +1206,10 @@ export default function ClientDetailPage() {
                       selectedCompetitor.why_dangerous ||
                       "No short description yet"}
                   </p>
-                  {(competitorDetail?.website || selectedCompetitor.website) ? (
+                  {externalHref(competitorDetail?.website || selectedCompetitor.website) ? (
                     <a
                       className="text-sm text-[var(--accent)] mt-3 inline-block"
-                      href={competitorDetail?.website || selectedCompetitor.website}
+                      href={externalHref(competitorDetail?.website || selectedCompetitor.website)}
                       target="_blank"
                       rel="noreferrer"
                     >

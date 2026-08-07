@@ -134,6 +134,29 @@ export default function ClientsPage() {
     }
   }
 
+  async function archiveClient(clientId: string, name: string) {
+    const label = name || "this client";
+    if (
+      !window.confirm(
+        `Archive “${label}”? Tracking stops and it leaves your active list. Reports stay saved.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(`archive-${clientId}`);
+    setError("");
+    setMessage("");
+    try {
+      await api(`/api/clients/${clientId}`, { method: "DELETE" });
+      setMessage(`“${label}” archived`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive client");
+    } finally {
+      setBusyId("");
+    }
+  }
+
   const isBusy = busy || !!busyId;
 
   return (
@@ -261,6 +284,17 @@ export default function ClientsPage() {
                       </span>
                     )}
                   </Button>
+                  {c.is_active ? (
+                    <Button
+                      variant="ghost"
+                      className="!px-3 !py-2 text-sm !border-red-200 !text-red-700 hover:!bg-red-50"
+                      disabled={isBusy}
+                      onClick={() => void archiveClient(c.id, c.name)}
+                      title="Archive client"
+                    >
+                      {busyId === `archive-${c.id}` ? "Archiving…" : "Archive"}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </div>

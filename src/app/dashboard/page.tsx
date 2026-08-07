@@ -11,15 +11,13 @@ import {
   FileText,
   HelpCircle,
   LifeBuoy,
-  Radar,
   Search,
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { RivalPulseBar } from "@/components/Charts";
-import { IntelProgressOverlay, IntelRunPhase, useIntelProgress } from "@/components/IntelProgress";
 import { Button, Card, Input, PageHeader } from "@/components/ui";
-import { api, runClientAutoIntel } from "@/lib/api";
+import { api } from "@/lib/api";
 
 type PortfolioRow = {
   id: string;
@@ -71,7 +69,6 @@ const TIP_KEY = "biqs_dashboard_tip_dismissed";
 const FILTER_KEY = "biqs_dashboard_filter";
 const QUERY_KEY = "biqs_dashboard_query";
 const STALE_MS = 7 * 24 * 60 * 60 * 1000;
-const BULK_INTEL_LIMIT = 3;
 
 const GUIDE_STEPS = [
   {
@@ -211,7 +208,9 @@ function nextActionFor(c: PortfolioRow & { health: Health; uniqueFeatures: numbe
   label: string;
   href: string | null;
 } {
-  if ((c.rivals ?? 0) === 0 || !c.last_intel_at) return { label: "Check competitors", href: null };
+  if ((c.rivals ?? 0) === 0 || !c.last_intel_at) {
+    return { label: "Check competitors", href: `/clients/${c.id}` };
+  }
   if ((c.alerts ?? 0) > 0) {
     return {
       label: `Review ${c.alerts} warning${c.alerts === 1 ? "" : "s"}`,
@@ -507,19 +506,9 @@ export default function DashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("health");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [tipVisible, setTipVisible] = useState(false);
-  const [busyId, setBusyId] = useState("");
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [justUpdatedId, setJustUpdatedId] = useState("");
-  const [intelName, setIntelName] = useState("");
-  const [intelOpen, setIntelOpen] = useState(false);
-  const [intelPhase, setIntelPhase] = useState<IntelRunPhase>("running");
-  const [intelSuccess, setIntelSuccess] = useState("");
-  const [intelError, setIntelError] = useState("");
   const [expandedId, setExpandedId] = useState("");
   const [detailsById, setDetailsById] = useState<Record<string, RowDetails>>({});
   const searchRef = useRef<HTMLInputElement>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const intelProgress = useIntelProgress(intelOpen && intelPhase === "running");
 
   async function loadRowDetails(clientId: string) {
     setDetailsById((prev) => ({
@@ -696,6 +685,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function archiveClient(clientId: string, clientName: string) {
+    if (
+      !window.confirm(
+        `Archive “${clientName}”? Tracking stops and it leaves your active list. Reports stay saved.`,
+      )
+    ) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await api(`/api/clients/${clientId}`, { method: "DELETE" });
+      setMessage(`Archived ${clientName}`);
+      if (expandedId === clientId) setExpandedId("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive client");
+    }
+  }
+
   useEffect(() => {
     load().catch(() => {
       /* error already set */
@@ -735,11 +744,6 @@ export default function DashboardPage() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (flashTimer.current) clearTimeout(flashTimer.current);
-    };
-  }, []);
 
   function dismissTip() {
     setTipVisible(false);
@@ -750,11 +754,6 @@ export default function DashboardPage() {
     }
   }
 
-  function flashUpdated(clientId: string) {
-    setJustUpdatedId(clientId);
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setJustUpdatedId(""), 4000);
-  }
 
   const latestByClient = useMemo(() => {
     const map = new Map<string, string>();
@@ -791,10 +790,6 @@ export default function DashboardPage() {
     [enriched],
   );
 
-  const bulkTargets = useMemo(
-    () => needsAttention.filter((c) => c.is_active).slice(0, BULK_INTEL_LIMIT),
-    [needsAttention],
-  );
 
   const visiblePortfolio = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -824,7 +819,6 @@ export default function DashboardPage() {
   const totalUnique = enriched.reduce((s, c) => s + c.uniqueFeatures, 0);
   const totalThreats = enriched.reduce((s, c) => s + c.threats, 0);
   const nextClient = needsAttention[0] || enriched[0] || null;
-  const isBusy = !!busyId || bulkBusy;
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -834,89 +828,14 @@ export default function DashboardPage() {
     }
   }
 
-  async function runIntel(clientId: string, name: string, opts?: { quiet?: boolean }) {
-    setBusyId(clientId);
-    setIntelName(name);
-    setError("");
-    if (!opts?.quiet) setMessage("");
-    setIntelSuccess("");
-    setIntelError("");
-    setIntelPhase("running");
-    setIntelOpen(true);
-    try {
-      const res = await runClientAutoIntel(clientId);
-      const summary = `Done for ${name} · ${res.enrich?.features || 0} features · ${res.pack?.competitors || 0} competitors`;
-      if (!opts?.quiet) setMessage(summary);
-      setIntelSuccess(summary);
-      setIntelPhase("success");
-      flashUpdated(clientId);
-      await load();
-      return true;
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "Intel run failed";
-      setError(detail);
-      setIntelError(detail);
-      setIntelPhase("error");
-      return false;
-    } finally {
-      setBusyId("");
-    }
-  }
-
-  async function runBulkIntel() {
-    if (!bulkTargets.length || isBusy) return;
-    setBulkBusy(true);
-    setError("");
-    setMessage("");
-    let ok = 0;
-    for (const c of bulkTargets) {
-      const success = await runIntel(c.id, c.name, { quiet: true });
-      if (success) ok += 1;
-      else break;
-    }
-    if (ok > 0) {
-      setMessage(
-        ok === bulkTargets.length
-          ? `Updated ${ok} attention client${ok === 1 ? "" : "s"}`
-          : `Updated ${ok} of ${bulkTargets.length} — stopped on error`,
-      );
-    }
-    setBulkBusy(false);
-  }
-
   function onSearch(e: FormEvent) {
     e.preventDefault();
   }
 
-  function rowClass(c: EnrichedRow) {
-    const base =
-      "border-b border-[var(--line)] last:border-0 align-middle transition-colors hover:bg-black/[0.015]";
-    if (justUpdatedId === c.id) return `${base} bg-[var(--accent-soft)]/55`;
-    return base;
-  }
-
-  function mobileCardClass(c: EnrichedRow) {
-    const base = "rounded-xl border border-[var(--line)] p-3 transition-colors";
-    if (justUpdatedId === c.id) return `${base} border-[var(--accent)]/40 bg-[var(--accent-soft)]/50`;
-    return base;
-  }
-
   function NextActionCell({ c }: { c: EnrichedRow }) {
-    if (!c.nextHref) {
-      return (
-        <button
-          type="button"
-          onClick={() => runIntel(c.id, c.name)}
-          disabled={isBusy}
-          className="font-medium text-[var(--accent)] hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
-        >
-          {c.nextAction}
-        </button>
-      );
-    }
     return (
       <Link
-        href={c.nextHref}
+        href={c.nextHref || `/clients/${c.id}`}
         className="font-medium text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded"
       >
         {c.nextAction}
@@ -925,42 +844,14 @@ export default function DashboardPage() {
   }
 
   function ActionButtons({ c, compact }: { c: EnrichedRow; compact?: boolean }) {
-    const neverScanned = c.lastScannedLabel === "Not checked yet";
     const btn = compact ? "!px-2.5 !py-1.5 text-xs" : "!px-3 !py-2 text-xs";
     return (
       <div className="flex flex-wrap gap-1.5">
-        {neverScanned ? (
-          <Button className={btn} onClick={() => runIntel(c.id, c.name)} disabled={isBusy} title="Check competitors">
-            {busyId === c.id ? (
-              "…"
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Radar size={12} /> {compact ? "Check" : "Check competitors"}
-              </span>
-            )}
-          </Button>
-        ) : null}
         <Link href={`/clients/${c.id}`}>
           <Button variant="ghost" className={btn} title="Open client">
             Open
           </Button>
         </Link>
-        {!neverScanned ? (
-          <Button
-            className={btn}
-            onClick={() => runIntel(c.id, c.name)}
-            disabled={isBusy}
-            title="Check competitors again"
-          >
-            {busyId === c.id ? (
-              "…"
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Radar size={12} /> {compact ? "Check" : "Check again"}
-              </span>
-            )}
-          </Button>
-        ) : null}
         <Link href={`/clients/${c.id}?tab=reports`}>
           <Button variant="ghost" className={btn} title="Reports">
             <span className="inline-flex items-center gap-1">
@@ -968,38 +859,36 @@ export default function DashboardPage() {
             </span>
           </Button>
         </Link>
+        <Button
+          variant="ghost"
+          className={`${btn} !border-red-200 !text-red-700 hover:!bg-red-50`}
+          title="Archive client"
+          onClick={() => void archiveClient(c.id, c.name)}
+        >
+          Archive
+        </Button>
       </div>
     );
   }
 
+  function rowClass(_c: EnrichedRow) {
+    return "border-b border-[var(--line)] last:border-0 align-middle transition-colors hover:bg-black/[0.015]";
+  }
+
+  function mobileCardClass(_c: EnrichedRow) {
+    return "rounded-xl border border-[var(--line)] p-3 transition-colors";
+  }
+
   return (
     <AppShell>
-      <IntelProgressOverlay
-        open={intelOpen}
-        phase={intelPhase}
-        clientName={intelName}
-        stepIndex={intelProgress.stepIndex}
-        progress={intelProgress.progress}
-        elapsedMs={intelProgress.elapsedMs}
-        tipIndex={intelProgress.tipIndex}
-        successMessage={intelSuccess}
-        errorMessage={intelError}
-        onDismiss={() => setIntelOpen(false)}
-      />
       <PageHeader
         title="Your clients at a glance"
         subtitle="Plain view of each brand: how they’re doing, what competitors have, and what to do next."
         actions={
           nextClient ? (
-            nextClient.rivals === 0 || !nextClient.last_intel_at ? (
-              <Button onClick={() => runIntel(nextClient.id, nextClient.name)} disabled={isBusy}>
-                {busyId === nextClient.id ? "Working…" : "Check competitors"}
-              </Button>
-            ) : (
-              <Link href={nextClient.nextHref || `/clients/${nextClient.id}`}>
-                <Button>{needsAttention.length ? "Fix next client" : "Open client"}</Button>
-              </Link>
-            )
+            <Link href={nextClient.nextHref || `/clients/${nextClient.id}`}>
+              <Button>{needsAttention.length ? "Fix next client" : "Open client"}</Button>
+            </Link>
           ) : (
             <Link href="/clients">
               <Button>Add a client</Button>
@@ -1036,8 +925,7 @@ export default function DashboardPage() {
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm text-[var(--ink)]">
                   <span className="font-semibold">Tip:</span> start with red or amber Health, then follow{" "}
-                  <span className="font-medium">Next step</span>. If a client was never checked, click{" "}
-                  <span className="font-medium">Check competitors</span>. Press{" "}
+                  <span className="font-medium">Next step</span>. Open a client to run Check competitors. Press{" "}
                   <kbd className="rounded border border-[var(--line)] bg-white px-1.5 py-0.5 text-xs">/</kbd> to search.
                 </p>
                 <button
@@ -1083,19 +971,6 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {bulkTargets.length > 0 ? (
-                        <Button
-                          type="button"
-                          className="!border-amber-200 !bg-white/90 text-amber-950"
-                          variant="ghost"
-                          onClick={runBulkIntel}
-                          disabled={isBusy}
-                        >
-                          {bulkBusy
-                            ? "Updating…"
-                            : `Update ${bulkTargets.length} client${bulkTargets.length === 1 ? "" : "s"}`}
-                        </Button>
-                      ) : null}
                       {needsAttention.slice(0, 3).map((c) => (
                         <Link key={c.id} href={c.nextHref || `/clients/${c.id}`}>
                           <Button variant="ghost" className="!border-amber-200 !bg-white/70">
