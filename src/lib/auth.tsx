@@ -197,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await refresh();
       if (opts?.requireMe && !me) {
         throw new Error(
-          "Could not verify your session with the API. Frontend and backend must use the same Supabase project.",
+          "Could not verify your session with the API. Try again in a moment — if it keeps failing, confirm frontend and backend use the same Supabase project.",
         );
       }
       return me;

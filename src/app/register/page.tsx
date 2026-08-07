@@ -7,10 +7,11 @@ import { useAuth } from "@/lib/auth";
 import { Button, Card, Input, Label } from "@/components/ui";
 
 function RegisterForm() {
-  const { register, bootstrap, loginWithGoogle, user, needsBootstrap } = useAuth();
+  const { register, bootstrap, loginWithGoogle, logout, user, needsBootstrap } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   // Don't flip to workspace-only UI mid-submit — that left people stuck on "Creating..."
   const oauthMode =
     !submitting &&
@@ -74,7 +75,19 @@ function RegisterForm() {
     }
   }
 
-  const busy = submitting || googleLoading;
+  async function onSignOutStartOver() {
+    setSigningOut(true);
+    setError("");
+    try {
+      await logout();
+      router.replace("/register");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign out");
+      setSigningOut(false);
+    }
+  }
+
+  const busy = submitting || googleLoading || signingOut;
 
   return (
     <div className="min-h-screen grid place-items-center px-4 py-10">
@@ -179,10 +192,26 @@ function RegisterForm() {
           </Button>
         </form>
         <p className="mt-4 text-sm text-[var(--muted)]">
-          Already have an account?{" "}
-          <Link href="/login" className="text-[var(--accent)]">
-            Sign in
-          </Link>
+          {oauthMode ? (
+            <>
+              Want a fresh start?{" "}
+              <button
+                type="button"
+                className="text-[var(--accent)] underline-offset-2 hover:underline disabled:opacity-60"
+                disabled={busy}
+                onClick={() => void onSignOutStartOver()}
+              >
+                {signingOut ? "Signing out…" : "Sign out and start over"}
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <Link href="/login" className="text-[var(--accent)]">
+                Sign in
+              </Link>
+            </>
+          )}
         </p>
       </Card>
     </div>
